@@ -46,16 +46,28 @@ function removeBlockRule(ruleId, sendResponse) {
 }
 
 function updateRules(blockedUrls) {
+  // Create an array of rule objects based on the blocked URLs
   const rules = blockedUrls.map((urlObj, index) => ({
-    id: index + 1,
-    priority: 1,
-    action: { type: "block" },
-    condition: { urlFilter: urlObj.urlPattern }
-  }));
+    id: index + 1,  // Each rule gets a unique ID based on its index
+    priority: 1,    // Priority of the rule, can be adjusted as needed
+    action: { type: "block" },  // Action to block the request
+    condition: { urlFilter: urlObj.urlPattern }  // Condition to match the URL pattern
+}));
 
+  // Extract the IDs of all current rules for removal
+  const ruleIds = rules.map(rule => rule.id);
+
+  // Update the declarativeNetRequest rules:
+  // 1. Remove all existing rules that have the same IDs
+  // 2. Add the new set of rules
   chrome.declarativeNetRequest.updateDynamicRules({
-    removeRuleIds: rules.map(rule => rule.id),
-    addRules: rules
+    removeRuleIds: ruleIds,
+    addRules: rules // New rules to add
+  }, () => {
+    // Check for errors in updating the rules
+    if (chrome.runtime.lastError) {
+      console.error("Error updating rules:", chrome.runtime.lastError);
+    }
   });
 }
 

@@ -1,6 +1,13 @@
 chrome.storage.sync.get({ blockedUrls: [] }, (data) => {
     const blockedUrls = data.blockedUrls;
   
+    // Initial check
+    checkUrl(window.location.href);
+  
+    // Set up observers and event listeners
+    observeMutations();
+    observeHistoryChanges();
+  
     function checkUrl(url) {
       for (const blockedUrl of blockedUrls) {
         const urlPattern = new RegExp(blockedUrl.urlPattern);
@@ -11,39 +18,34 @@ chrome.storage.sync.get({ blockedUrls: [] }, (data) => {
       }
     }
   
-    // Initial check
-    checkUrl(window.location.href);
+    function observeMutations() {
+      const observer = new MutationObserver(() => {
+        checkUrl(window.location.href);
+      });
   
-    // Monitor for URL changes
-    const observer = new MutationObserver(() => {
-      checkUrl(window.location.href);
-    });
+      observer.observe(document, { subtree: true, childList: true });
+    }
   
-    observer.observe(document, { subtree: true, childList: true });
+    function observeHistoryChanges() {
+      history.pushState = createHistoryHandler(history.pushState, 'pushstate');
+      history.replaceState = createHistoryHandler(history.replaceState, 'replacestate');
   
-    // Monitor history changes (for single-page applications)
-    history.pushState = ((f) =>
-      function pushState(){
-        const ret = f.apply(this, arguments);
-        window.dispatchEvent(new Event('pushstate'));
+      window.addEventListener('popstate', () => {
         window.dispatchEvent(new Event('locationchange'));
-        return ret;
-    })(history.pushState);
+      });
   
-    history.replaceState = ((f) =>
-      function replaceState(){
-        const ret = f.apply(this, arguments);
-        window.dispatchEvent(new Event('replacestate'));
+      window.addEventListener('locationchange', () => {
+        checkUrl(window.location.href);
+      });
+    }
+  
+    function createHistoryHandler(originalFunction, eventName) {
+      return function() {
+        const result = originalFunction.apply(this, arguments);
+        window.dispatchEvent(new Event(eventName));
         window.dispatchEvent(new Event('locationchange'));
-        return ret;
-    })(history.replaceState);
-  
-    window.addEventListener('popstate', () => {
-      window.dispatchEvent(new Event('locationchange'))
-    });
-  
-    window.addEventListener('locationchange', () => {
-      checkUrl(window.location.href);
-    });
+        return result;
+      };
+    }
   });
   
