@@ -45,7 +45,7 @@ Here are some examples of how to use define a URL you might want block. Some of 
 - `.*threads.net.*`
 - `.*x.com.*`
 
-![Use Case Example](example_1.png)
+<img src="example_1.png" alt="Enter URL pattern and click Block URL" height="600px">
 
 These default URLs can be enabled or disabled as needed, but cannot be removed from the list. To enable or disable these default blocked URLs, use the toggle button in the extension settings.
 
