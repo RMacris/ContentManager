@@ -12,7 +12,7 @@ chrome.storage.sync.get({ blockedUrls: [] }, (data) => {
       for (const blockedUrl of blockedUrls) {
         const urlPattern = new RegExp(blockedUrl.urlPattern);
         if (urlPattern.test(url)) {
-          window.location.href = "about:blank"; // Redirect to a blank page or a custom page
+          window.location.href = chrome.runtime.getURL("blocked.html"); // Redirect to blocked page
           break;
         }
       }
