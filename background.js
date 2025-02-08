@@ -14,6 +14,11 @@ function handleMessages(message, sender, sendResponse) {
   } else if (message.action === "removeBlockRule") {
     removeBlockRule(message.ruleId, sendResponse);
     return true; // Keep the message channel open for async response
+  } else if (message.action === "removeYoutubeHeelsElements") {
+    chrome.storage.sync.set({ removeYoutubeHeelsElements: message.message }, () => {
+      sendResponse({ action: "success", message: `YouTube Shorts removal status updated. ${message.message}` });
+    });
+    return true; // Keep the message channel open for async response
   }
 }
 

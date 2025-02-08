@@ -19,6 +19,49 @@ function handleBlockUrl() {
   });
 }
 
+function loadYoutubeShortsCheckboxValue() {
+  chrome.storage.sync.get('removeYoutubeHeelsElements', (data) => {
+    const checkbox = document.getElementById('blockYoutubeShorts');
+    checkbox.checked = data.removeYoutubeHeelsElements;
+  });
+}
+loadYoutubeShortsCheckboxValue();
+
+function checkCheckboxStatus() {
+  console.log('checkCheckboxStatus being called '   );
+  const checkbox = document.getElementById('blockYoutubeShorts');
+  const status = checkbox.checked;
+
+  chrome.runtime.sendMessage({
+    action: 'removeYoutubeHeelsElements',
+    message: status
+  }).then(response => {
+    console.log('Status updated:', response.message);
+  }).catch(error => {
+    console.error('Error updating status:', error);
+  });
+}
+
+function attachToCheckboxWrapper() {
+  const checkboxWrapper = document.getElementById('checkboxWrapper');
+
+  // create label and checkbox
+  const label = document.createElement('label');
+  label.setAttribute('for', 'blockYoutubeShorts'); 
+  label.textContent = 'Block YouTube Shorts';
+
+  const checkbox = document.createElement('input');
+  checkbox.setAttribute('type', 'checkbox');
+  checkbox.setAttribute('id', 'blockYoutubeShorts');
+  checkbox.setAttribute('name', 'blockYoutubeShorts');
+
+  // append label and checkbox to wrapper
+  checkboxWrapper.appendChild(label);
+  checkboxWrapper.appendChild(checkbox);
+
+  checkbox.addEventListener('change', checkCheckboxStatus);
+}
+attachToCheckboxWrapper();
 function loadBlockedUrls() {
   chrome.storage.sync.get({ blockedUrls: [] }, (data) => {
     const blockedUrlsList = document.getElementById('blockedUrlsList');
