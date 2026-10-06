@@ -82,7 +82,13 @@ async function loadStatus() {
       if (run.maximized === false) lines.push(`não maximizou (${run.maximizeReason}) — rolou três telas`);
     } else {
       lines.push(`última colheita: ${when} — falhou`);
-      lines.push(`motivo: ${run.error}`);
+      // `error` vem de uma falha na coleta; `delivery` vem de uma colheita que deu
+      // certo mas não chegou à ponte. Ler só `error` mostrava "motivo: undefined"
+      // exatamente no caso mais comum — token ainda não configurado.
+      lines.push(`motivo: ${run.error ?? run.delivery ?? 'sem detalhe'}`);
+      if (typeof run.cardCount === 'number' && run.cardCount > 0) {
+        lines.push(`(a colheita funcionou: ${run.cardCount} cards — só a entrega falhou)`);
+      }
     }
   } else {
     lines.push('nenhuma colheita ainda');
