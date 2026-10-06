@@ -120,6 +120,67 @@ By understanding and using `.*`, you can effectively block a wide range of URLs 
 
 Let’s build a community-driven solution to break free from the grasp of big tech corporations.
 
+## Coleta do feed do YouTube
+
+Além do bloqueio, esta extensão colhe o **topo** do feed do YouTube e o envia para uma ponte
+local, que filtra o conteúdo com uma LLM rodando na própria máquina. A extensão **não** julga
+nada: ela só coleta e entrega.
+
+O que ela envia por card: thumbnail, título, data, nome do canal e avatar — exatamente o que o
+card mostra na tela, sem analisar o vídeo.
+
+**Como funciona o ciclo.** Um alarme interno (`chrome.alarms`) acorda a extensão no período
+configurado. Ela reaproveita uma aba do YouTube já aberta (ou abre uma em segundo plano), lê o
+`ytInitialData` da página e envia os cards por HTTP para a ponte.
+
+**Por que a extensão inicia, e não o contrário.** O service worker do MV3 dorme quando ocioso, e
+nada fora da extensão consegue acordá-lo. Por isso a coleta roda no relógio dela. O efeito
+colateral é bom: nenhum agente consegue mandar esta extensão fazer nada.
+
+**Por que lê o JSON e não o DOM.** Medido: no DOM, a maior parte das thumbnails fora da tela e
+praticamente todos os avatares vêm vazios por lazy loading, enquanto o payload da página tem
+todos. A leitura acontece no mundo MAIN, porque o `ytInitialData` vive no escopo da página.
+
+### Estrutura
+
+```
+manifest.json
+src/
+├── background/          service worker (módulos ES)
+│   ├── service-worker.js  ponto de entrada: alarme e mensagens
+│   ├── blocking.js        bloqueio de URLs (declarativeNetRequest)
+│   ├── settings.js        preferências, token e agendamento do alarme
+│   ├── youtube-tab.js     achar/abrir aba, maximizar, colher
+│   ├── collector.js       orquestra a colheita
+│   └── bridge-client.js   entrega por HTTP e fila de pendentes
+├── content/
+│   └── block-guard.js     redireciona URLs bloqueadas (script clássico)
+├── injected/
+│   └── feed-extract.js    lê os cards no mundo MAIN da página
+└── popup/                 interface: bloqueio e configuração da coleta
+```
+
+### Configuração
+
+No popup: ligar/desligar a coleta, o período em minutos, a URL da ponte e o token. O token é
+gerado pela ponte em `state/token.txt`, na pasta dela — ele fica em `chrome.storage.local`, não
+em `sync`, porque um segredo local não deve viajar entre máquinas.
+
+### Permissões
+
+Apenas quatro: `storage`, `declarativeNetRequest`, `scripting` e `alarms`. As permissões
+`webRequest`, `webNavigation`, `activeTab` e `declarativeNetRequestFeedback` que a versão anterior
+declarava **não eram usadas em lugar nenhum** do código e foram removidas.
+
+### Testes
+
+```powershell
+npm test
+```
+
+Exercita o extrator contra um payload com o formato real capturado ao vivo — incluindo anúncio,
+Shorts, playlist, card sem avatar e o formato antigo.
+
 ## Installation
 
 1. Clone the repository.
