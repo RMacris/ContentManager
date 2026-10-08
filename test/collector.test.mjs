@@ -120,7 +120,8 @@ function fakeChrome() {
       },
     },
     windows: {
-      get: async () => ({ state: 'maximized' }),
+      get: async (windowId) => ({ id: windowId, state: 'maximized', focused: true }),
+      getLastFocused: async () => ({ id: 1, state: 'maximized', focused: true }),
       update: async () => ({ state: 'maximized' }),
     },
   };

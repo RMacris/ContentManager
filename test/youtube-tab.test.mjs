@@ -87,7 +87,7 @@ function fakeChrome() {
       create: async (props) => {
         const id = state.nextTabId++;
         state.calls.create.push({ id, ...props });
-        state.tabs.set(id, { id, url: props.url, status: 'complete', windowId: 1 });
+        state.tabs.set(id, { id, url: props.url, status: 'complete', windowId: 1, active: props.active === true });
         return { id };
       },
       update: async (tabId, props) => {
@@ -134,6 +134,10 @@ function fakeChrome() {
         return [{ result: state.scriptResult }];
       },
     },
+    windows: {
+      getLastFocused: async () => ({ id: 1, focused: true, state: 'normal' }),
+      get: async (windowId) => ({ id: windowId, focused: true, state: 'normal' }),
+    },
   };
 
   state.finishNavigation = () => {
@@ -175,6 +179,15 @@ process.stdout.write('aba do usuário intocada:\n');
   check('não sobrou posse registrada', state.session.ownedFeedTabId === undefined);
   check('reused é false na primeira rodada', result.reused === false);
   check('tabClosed é true', result.tabClosed === true);
+  check(
+    'diagnóstico: a aba própria saiu inativa',
+    result.focus && result.focus.after.tabActive === false,
+    JSON.stringify(result.focus),
+  );
+  check(
+    'diagnóstico: o foco da janela não mudou',
+    result.focus && result.focus.before.focused === true && result.focus.after.windowFocused === true,
+  );
 }
 
 process.stdout.write('falha na extração ainda fecha a aba:\n');
@@ -207,6 +220,7 @@ process.stdout.write('aba deixada por uma colheita interrompida:\n');
   check('navegou a aba própria de volta ao feed', state.calls.update.some((c) => c.tabId === leakedId));
   check('fechou a aba que ficou', state.calls.remove.includes(leakedId) && !state.tabs.has(leakedId));
   check('posse limpa', state.session.ownedFeedTabId === undefined);
+  check('diagnóstico no reuso também é registrado', result.focus && result.focus.after.tabActive === false);
 }
 
 process.stdout.write('posse apontando para aba que já não existe:\n');

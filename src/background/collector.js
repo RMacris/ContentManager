@@ -50,7 +50,7 @@ async function executeCollect(trigger) {
   try {
     // A colheita inteira acontece numa aba própria, fechada ao fim: as abas do
     // usuário não são selecionadas, navegadas nem fechadas.
-    const { cards, buildLabel, windowState, reused, tabClosed } = await harvestInOwnTab();
+    const { cards, buildLabel, windowState, reused, tabClosed, focus } = await harvestInOwnTab();
 
     if (cards.length === 0) {
       outcome = {
@@ -58,6 +58,7 @@ async function executeCollect(trigger) {
         error: 'nenhum card encontrado — o layout do YouTube pode ter mudado',
         reusedTab: reused,
         tabClosed,
+        focus,
       };
     } else {
       const harvest = {
@@ -79,6 +80,7 @@ async function executeCollect(trigger) {
         maximized: windowState.maximized,
         maximizeReason: windowState.reason,
         delivery: delivery.ok ? 'entregue' : delivery.detail,
+        focus,
       };
     }
   } catch (error) {
