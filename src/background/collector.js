@@ -6,15 +6,36 @@
  * que a extensão inicia, em vez de ser comandada.
  */
 import { flushQueue, queueHarvest, recordDelivery, sendHarvest } from './bridge-client.js';
+import {
+  MAX_RETRIES,
+  RETRY_ALARM_NAME,
+  RETRY_COUNT_KEY,
+  RETRY_DELAY_MINUTES,
+} from './settings.js';
 import { harvestInOwnTab } from './youtube-tab.js';
 
 const LAST_RUN_KEY = 'lastCollectRun';
 
 /**
+ * A colheita em andamento, quando há uma. O worker é um só: se o alarme e o
+ * botão dispararem juntos, os dois compartilham a mesma rodada em vez de abrir
+ * duas abas e uma navegar por cima da outra.
+ */
+let inFlight = null;
+
+/**
  * Colhe agora, seja pelo alarme ou pelo botão do popup.
  * Nunca lança: devolve um resumo, porque quem chama é um alarme sem ninguém olhando.
  */
-export async function collectNow(trigger) {
+export function collectNow(trigger) {
+  if (inFlight !== null) return inFlight;
+  inFlight = executeCollect(trigger).finally(() => {
+    inFlight = null;
+  });
+  return inFlight;
+}
+
+async function executeCollect(trigger) {
   const startedAt = new Date().toISOString();
 
   // Antes de colher, tentar entregar o que ficou preso da última vez.
@@ -66,7 +87,34 @@ export async function collectNow(trigger) {
 
   const summary = { at: startedAt, trigger, ...outcome, flushed };
   await chrome.storage.local.set({ [LAST_RUN_KEY]: summary });
+  await handleRetry(summary);
   return summary;
+}
+
+/**
+ * Retentativa: falha transitória (aba, carga ou ponte fora do ar) não espera a
+ * hora cheia. Um sucesso encerra o episódio; cada falha agenda no máximo
+ * `MAX_RETRIES` retentativas. O alarme e o botão começam episódio novo; a
+ * própria retentativa apenas continua contando.
+ */
+async function handleRetry(summary) {
+  try {
+    if (summary.ok) {
+      await chrome.alarms.clear(RETRY_ALARM_NAME);
+      await chrome.storage.local.remove(RETRY_COUNT_KEY);
+      return;
+    }
+    if (summary.trigger !== 'retentativa') {
+      await chrome.storage.local.remove(RETRY_COUNT_KEY);
+    }
+    const stored = await chrome.storage.local.get({ [RETRY_COUNT_KEY]: 0 });
+    const used = stored[RETRY_COUNT_KEY];
+    if (used >= MAX_RETRIES) return;
+    await chrome.alarms.create(RETRY_ALARM_NAME, { delayInMinutes: RETRY_DELAY_MINUTES });
+    await chrome.storage.local.set({ [RETRY_COUNT_KEY]: used + 1 });
+  } catch (error) {
+    // Melhor esforço: não conseguir reagendar não pode derrubar a colheita.
+  }
 }
 
 export async function readLastRun() {

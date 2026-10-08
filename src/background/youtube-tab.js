@@ -18,8 +18,15 @@ const FEED_URL = 'https://www.youtube.com/';
 /** Onde a posse da aba própria é registrada, para sobreviver a um worker morto. */
 const OWNED_TAB_KEY = 'ownedFeedTabId';
 
-/** Espera a aba terminar de carregar, com teto de tempo. */
-function waitForComplete(tabId, timeoutMs = 20000) {
+/**
+ * Espera a aba terminar de carregar, com teto de tempo.
+ *
+ * `expectedUrl` é o critério de aceitação: uma aba marcada como completa na
+ * página antiga (a corrida da aba reaproveitada) não conta. Em `ignoreInitial`,
+ * nem o estado inicial vale — só um evento de `complete` da navegação nova,
+ * porque a carga que nos interessa é a que a chamada de `update` disparou.
+ */
+function waitForComplete(tabId, expectedUrl, ignoreInitial = false, timeoutMs = 20000) {
   return new Promise((resolve) => {
     let settled = false;
 
@@ -32,19 +39,29 @@ function waitForComplete(tabId, timeoutMs = 20000) {
     };
 
     const listener = (changedId, info) => {
-      if (changedId === tabId && info.status === 'complete') finish(true);
+      if (changedId !== tabId || info.status !== 'complete') return;
+      // Confere a URL de novo: redirect para consentimento/login não é o feed.
+      chrome.tabs.get(changedId).then(
+        (tab) => {
+          if (tab && tab.url === expectedUrl) finish(true);
+        },
+        () => {},
+      );
     };
 
     const timer = setTimeout(() => finish(false), timeoutMs);
     chrome.tabs.onUpdated.addListener(listener);
 
-    // A aba pode já estar completa quando chegamos aqui.
-    chrome.tabs.get(tabId).then(
-      (tab) => {
-        if (tab.status === 'complete') finish(true);
-      },
-      () => finish(false),
-    );
+    // A aba pode já estar completa quando chegamos aqui — mas só vale se for a
+    // página que esperamos, e nunca no caso de navegação recém Disparada.
+    if (!ignoreInitial) {
+      chrome.tabs.get(tabId).then(
+        (tab) => {
+          if (tab.status === 'complete' && tab.url === expectedUrl) finish(true);
+        },
+        () => finish(false),
+      );
+    }
   });
 }
 
@@ -84,7 +101,9 @@ export async function ensureFeedTab() {
     const owned = await getTabOrNull(ownedId);
     if (owned) {
       await chrome.tabs.update(ownedId, { url: FEED_URL });
-      await waitForComplete(ownedId);
+      // Navegação recém-disparada: a página antiga ainda se diz completa, então
+      // só um `complete` da navegação nova vale.
+      await waitForComplete(ownedId, FEED_URL, true);
       return { tabId: ownedId, reused: true };
     }
     await forgetOwnedTab(ownedId);
@@ -95,7 +114,7 @@ export async function ensureFeedTab() {
     throw new Error('não foi possível abrir a aba do YouTube');
   }
   await rememberOwnedTab(created.id);
-  await waitForComplete(created.id);
+  await waitForComplete(created.id, FEED_URL);
   return { tabId: created.id, reused: false };
 }
 

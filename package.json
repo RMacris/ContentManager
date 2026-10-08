@@ -5,6 +5,6 @@
   "type": "module",
   "description": "Extensão do Chrome: bloqueio de URLs indesejadas e coleta do topo do feed do YouTube.",
   "scripts": {
-    "test": "node test/feed-extract.test.mjs && node test/youtube-tab.test.mjs"
+    "test": "node test/feed-extract.test.mjs && node test/youtube-tab.test.mjs && node test/collector.test.mjs"
   }
 }

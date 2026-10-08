@@ -132,7 +132,10 @@ card mostra na tela, sem analisar o vídeo.
 **Como funciona o ciclo.** Um alarme interno (`chrome.alarms`) acorda a extensão no período
 configurado. Ela abre uma aba própria do YouTube **em segundo plano**, lê o `ytInitialData` da
 página, envia os cards por HTTP para a ponte e **fecha a aba** — sucesso ou falha. Aba que o
-usuário abriu não é selecionada, navegada nem fechada.
+usuário abriu não é selecionada, navegada nem fechada. Uma rodada que falha agenda uma
+retentativa curta (5 minutos, no máximo duas) em vez de esperar a hora cheia; sucesso encerra o
+episódio, e alarme e botão começam um novo. Com uma rodada em andamento, alarme e botão
+compartilham a mesma colheita em vez de abrir duas abas.
 
 **Por que a extensão inicia, e não o contrário.** O service worker do MV3 dorme quando ocioso, e
 nada fora da extensão consegue acordá-lo. Por isso a coleta roda no relógio dela. O efeito
@@ -165,7 +168,9 @@ src/
 
 No popup: ligar/desligar a coleta, o período em minutos, a URL da ponte e o token. O token é
 gerado pela ponte em `state/token.txt`, na pasta dela — ele fica em `chrome.storage.local`, não
-em `sync`, porque um segredo local não deve viajar entre máquinas.
+em `sync`, porque um segredo local não deve viajar entre máquinas. O painel do popup mostra a
+última rodada com o gatilho — **automática**, **manual** ou **retentativa** —, o que deixa
+visível que a coleta periódica está andando mesmo sem clique.
 
 ### Permissões
 
@@ -180,9 +185,10 @@ npm test
 ```
 
 Exercita o extrator contra um payload com o formato real capturado ao vivo — incluindo anúncio,
-Shorts, playlist, card sem avatar e o formato antigo — e o ciclo de vida da aba (aba do usuário
-intocada, aba própria fechada sempre, recuperação de uma colheita interrompida) com um dublê de
-`chrome`.
+Shorts, playlist, card sem avatar e o formato antigo —, o ciclo de vida da aba (aba do usuário
+intocada, aba própria fechada sempre, recuperação de uma colheita interrompida, espera da
+navegação antes de extrair) e a orquestração da colheita (retentativa agendada, com teto e
+encerrada por sucesso; chamadas concorrentes colhem uma vez só) com um dublê de `chrome`.
 
 ## Installation
 

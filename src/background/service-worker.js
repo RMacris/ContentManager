@@ -13,7 +13,7 @@
 import { addBlockRule, initializeRules, removeBlockRule } from './blocking.js';
 import { flushQueue, pingBridge, readDelivery } from './bridge-client.js';
 import { collectNow, readLastRun } from './collector.js';
-import { ALARM_NAME, getSettings, rescheduleAlarm, saveSettings } from './settings.js';
+import { ALARM_NAME, getSettings, rescheduleAlarm, RETRY_ALARM_NAME, saveSettings } from './settings.js';
 
 chrome.runtime.onInstalled.addListener(() => {
   void (async () => {
@@ -31,6 +31,7 @@ chrome.runtime.onStartup.addListener(() => {
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === ALARM_NAME) void collectNow('alarme');
+  else if (alarm.name === RETRY_ALARM_NAME) void collectNow('retentativa');
 });
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {

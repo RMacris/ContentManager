@@ -36,10 +36,15 @@ function fakeChrome() {
     session: {},
     tabs: new Map(),
     nextTabId: 100,
-    calls: { query: 0, create: [], update: [], remove: [] },
+    calls: { query: 0, create: [], update: [], remove: [], script: [] },
     scriptResult: { ok: true, cards: [], buildLabel: 'label' },
     scriptError: null,
     removeError: null,
+    // Navegação: por padrão completa sozinha no próximo tick; o teste de corrida
+    // desliga para controlar quando a página nova fica pronta.
+    autoCompleteNavigation: true,
+    pendingNavigation: null,
+    listeners: [],
   };
 
   // A aba do usuário: aberta, reproduzindo um vídeo, e não pode ser tocada.
@@ -89,6 +94,18 @@ function fakeChrome() {
         state.calls.update.push({ tabId, ...props });
         const tab = state.tabs.get(tabId);
         if (!tab) throw new Error(`No tab with id: ${tabId}`);
+        if (typeof props.url === 'string') {
+          // Navegação de verdade: a página antiga continua no ar (completa) até a
+          // nova ficar pronta — é essa janela que o teste de corrida exercita.
+          state.pendingNavigation = { tabId, url: props.url };
+          if (state.autoCompleteNavigation) {
+            const pending = state.pendingNavigation;
+            setTimeout(() => {
+              if (state.pendingNavigation === pending) state.finishNavigation();
+            }, 0);
+          }
+          return tab;
+        }
         Object.assign(tab, props);
         return tab;
       },
@@ -98,14 +115,38 @@ function fakeChrome() {
         if (!state.tabs.has(tabId)) throw new Error(`No tab with id: ${tabId}`);
         state.tabs.delete(tabId);
       },
-      onUpdated: { addListener: () => {}, removeListener: () => {} },
+      onUpdated: {
+        addListener: (listener) => {
+          state.listeners.push(listener);
+        },
+        removeListener: (listener) => {
+          state.listeners = state.listeners.filter((candidate) => candidate !== listener);
+        },
+      },
     },
     scripting: {
-      executeScript: async () => {
+      executeScript: async (options) => {
+        // Registra de que página a extração leu — é o que denuncia a corrida.
+        const tabId = options && options.target ? options.target.tabId : null;
+        const tab = state.tabs.get(tabId);
+        state.calls.script.push({ tabId, url: tab ? tab.url : null });
         if (state.scriptError) throw new Error(state.scriptError);
         return [{ result: state.scriptResult }];
       },
     },
+  };
+
+  state.finishNavigation = () => {
+    const pending = state.pendingNavigation;
+    if (!pending) return;
+    state.pendingNavigation = null;
+    const tab = state.tabs.get(pending.tabId);
+    if (!tab) return;
+    tab.url = pending.url;
+    tab.status = 'complete';
+    for (const listener of state.listeners.slice()) {
+      listener(pending.tabId, { status: 'complete', url: pending.url });
+    }
   };
 
   return state;
@@ -200,6 +241,34 @@ process.stdout.write('fechar aba que já não existe é sucesso:\n');
   fakeChrome();
   const closing = await closeFeedTab(555);
   check('closed true para aba ausente', closing.closed === true && closing.alreadyGone === true);
+}
+
+process.stdout.write('aba reaproveitada ainda na página antiga não é colhida antes de carregar:\n');
+{
+  const state = fakeChrome();
+  const leakedId = 77;
+  // Aba própria deixada pela rodada anterior, ainda exibindo um vídeo.
+  state.tabs.set(leakedId, {
+    id: leakedId,
+    url: 'https://www.youtube.com/watch?v=antigo',
+    status: 'complete',
+    windowId: 1,
+  });
+  state.session.ownedFeedTabId = leakedId;
+  // A navegação para o feed não completa sozinha: o teste decide quando.
+  state.autoCompleteNavigation = false;
+  state.scriptResult = { ok: true, cards: [{ videoId: 'v9' }], buildLabel: 'build-1' };
+
+  const harvest = harvestInOwnTab();
+  setTimeout(() => state.finishNavigation(), 30);
+  const result = await harvest;
+
+  check(
+    'extraiu da página do feed, não da antiga',
+    state.calls.script[0] && state.calls.script[0].url === FEED_URL,
+    `extraiu de ${state.calls.script[0] ? state.calls.script[0].url : '?'}`,
+  );
+  check('a espera devolveu os cards', result.cards.length === 1 && result.cards[0].videoId === 'v9');
 }
 
 process.stdout.write(failures === 0 ? '\nTUDO OK\n' : `\n${failures} FALHA(S)\n`);

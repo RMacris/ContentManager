@@ -20,13 +20,26 @@ export const DEFAULT_SETTINGS = {
   maxCards: 30,
   /**
    * Maximizar a janela antes de colher (com rolagem de três telas como reserva).
-   * Fica ligado porque foi pedido, mas é a parte mais intrusiva da extensão —
-   * desligar aqui não afeta a coleta, que lê o JSON da página, não a tela.
+   * Desligado por padrão: a coleta lê o JSON da página, não a tela, e maximizar
+   * uma janela de fundo mexe no que o usuário está fazendo — um jogo em tela
+   * cheia, por exemplo. Ligar de novo só custa uma edição aqui.
    */
-  maximizeBeforeCollect: true,
+  maximizeBeforeCollect: false,
 };
 
 export const ALARM_NAME = 'yti-collect';
+
+/** Alarme da retentativa: uma colheita que falhou não espera a hora cheia. */
+export const RETRY_ALARM_NAME = 'yti-collect-retry';
+
+/** Espera, em minutos, antes de retentar uma colheita que falhou. */
+export const RETRY_DELAY_MINUTES = 5;
+
+/** Teto de retentativas automáticas por episódio de falha. */
+export const MAX_RETRIES = 2;
+
+/** Onde o episódio de retentativa guarda as tentativas já gastas. */
+export const RETRY_COUNT_KEY = 'collectRetryCount';
 
 /** Quantos lotes pendentes guardar quando a ponte está fora do ar. */
 export const MAX_PENDING_HARVESTS = 5;
@@ -51,7 +64,11 @@ export async function saveSettings(patch) {
 export async function rescheduleAlarm() {
   const { collectEnabled, collectPeriodMinutes } = await getSettings();
   await chrome.alarms.clear(ALARM_NAME);
-  if (!collectEnabled) return;
+  if (!collectEnabled) {
+    // Desligar a colheita também desliga a retentativa pendente.
+    await chrome.alarms.clear(RETRY_ALARM_NAME);
+    return;
+  }
   // `delayInMinutes` evita colher no instante em que o navegador abre.
   chrome.alarms.create(ALARM_NAME, {
     delayInMinutes: 1,

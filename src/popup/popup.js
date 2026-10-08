@@ -58,6 +58,9 @@ async function handleRemoveBlockRule(ruleId) {
 
 /* -------------------------------------------------------------------- coleta */
 
+/** Como o popup chama cada gatilho da colheita. */
+const TRIGGER_LABELS = { alarme: 'automática', manual: 'manual', retentativa: 'retentativa' };
+
 async function loadStatus() {
   const status = await chrome.runtime.sendMessage({ action: 'status' });
   if (!status || status.action !== 'status') {
@@ -76,12 +79,13 @@ async function loadStatus() {
   const run = status.lastRun;
   if (run) {
     const when = new Date(run.at).toLocaleString();
+    const trigger = TRIGGER_LABELS[run.trigger] ?? run.trigger ?? '';
     if (run.ok) {
-      lines.push(`última colheita: ${when} — ${run.cardCount} cards, ${run.delivery}`);
+      lines.push(`última colheita: ${when} (${trigger}) — ${run.cardCount} cards, ${run.delivery}`);
       if (run.reusedTab) lines.push('reaproveitou e fechou a aba deixada pela colheita anterior');
       if (run.maximized === false) lines.push(`não maximizou (${run.maximizeReason}) — rolou três telas`);
     } else {
-      lines.push(`última colheita: ${when} — falhou`);
+      lines.push(`última colheita: ${when} (${trigger}) — falhou`);
       // `error` vem de uma falha na coleta; `delivery` vem de uma colheita que deu
       // certo mas não chegou à ponte. Ler só `error` mostrava "motivo: undefined"
       // exatamente no caso mais comum — token ainda não configurado.
