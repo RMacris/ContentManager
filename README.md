@@ -130,8 +130,9 @@ O que ela envia por card: thumbnail, título, data, nome do canal e avatar — e
 card mostra na tela, sem analisar o vídeo.
 
 **Como funciona o ciclo.** Um alarme interno (`chrome.alarms`) acorda a extensão no período
-configurado. Ela reaproveita uma aba do YouTube já aberta (ou abre uma em segundo plano), lê o
-`ytInitialData` da página e envia os cards por HTTP para a ponte.
+configurado. Ela abre uma aba própria do YouTube **em segundo plano**, lê o `ytInitialData` da
+página, envia os cards por HTTP para a ponte e **fecha a aba** — sucesso ou falha. Aba que o
+usuário abriu não é selecionada, navegada nem fechada.
 
 **Por que a extensão inicia, e não o contrário.** O service worker do MV3 dorme quando ocioso, e
 nada fora da extensão consegue acordá-lo. Por isso a coleta roda no relógio dela. O efeito
@@ -150,7 +151,7 @@ src/
 │   ├── service-worker.js  ponto de entrada: alarme e mensagens
 │   ├── blocking.js        bloqueio de URLs (declarativeNetRequest)
 │   ├── settings.js        preferências, token e agendamento do alarme
-│   ├── youtube-tab.js     achar/abrir aba, maximizar, colher
+│   ├── youtube-tab.js     abrir/colher/fechar a aba própria
 │   ├── collector.js       orquestra a colheita
 │   └── bridge-client.js   entrega por HTTP e fila de pendentes
 ├── content/
@@ -179,7 +180,9 @@ npm test
 ```
 
 Exercita o extrator contra um payload com o formato real capturado ao vivo — incluindo anúncio,
-Shorts, playlist, card sem avatar e o formato antigo.
+Shorts, playlist, card sem avatar e o formato antigo — e o ciclo de vida da aba (aba do usuário
+intocada, aba própria fechada sempre, recuperação de uma colheita interrompida) com um dublê de
+`chrome`.
 
 ## Installation
 

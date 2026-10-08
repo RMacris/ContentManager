@@ -1,14 +1,22 @@
 /**
- * Aba do YouTube e janela: encontrar, abrir, maximizar.
+ * Aba do YouTube e janela: abrir, colher, fechar.
  *
  * Princípio que governa este arquivo: **a automação não mexe no que é do usuário.**
- * Reaproveita uma aba que já existe em vez de abrir outra, nunca fecha aba que o
- * usuário abriu, e não rouba o foco da janela em que ele está trabalhando.
+ * A colheita usa uma aba própria, aberta em segundo plano e fechada ao fim — aba
+ * que o usuário abriu nunca é selecionada, navegada nem fechada. Era a navegação
+ * dessa aba que fazia um vídeo em reprodução pular para a home a cada ciclo.
+ *
+ * Se o worker morrer no meio de uma colheita, a aba fica; o id dela é guardado em
+ * `chrome.storage.session`, e a rodada seguinte reaproveita e fecha essa aba, em
+ * vez de acumular outra.
  */
 import { extractFeedCards, scrollThreeViewports } from '../injected/feed-extract.js';
 import { getSettings } from './settings.js';
 
 const FEED_URL = 'https://www.youtube.com/';
+
+/** Onde a posse da aba própria é registrada, para sobreviver a um worker morto. */
+const OWNED_TAB_KEY = 'ownedFeedTabId';
 
 /** Espera a aba terminar de carregar, com teto de tempo. */
 function waitForComplete(tabId, timeoutMs = 20000) {
@@ -40,25 +48,53 @@ function waitForComplete(tabId, timeoutMs = 20000) {
   });
 }
 
+/** O id da aba própria, registrado para o caso de uma colheita interrompida no meio. */
+async function readOwnedTabId() {
+  const stored = await chrome.storage.session.get({ [OWNED_TAB_KEY]: null });
+  return stored[OWNED_TAB_KEY];
+}
+
+async function rememberOwnedTab(tabId) {
+  await chrome.storage.session.set({ [OWNED_TAB_KEY]: tabId });
+}
+
+async function forgetOwnedTab(tabId) {
+  const stored = await readOwnedTabId();
+  if (stored === tabId) await chrome.storage.session.remove(OWNED_TAB_KEY);
+}
+
+/** Lê a aba sem lançar: null quando ela já não existe. */
+async function getTabOrNull(tabId) {
+  try {
+    return await chrome.tabs.get(tabId);
+  } catch {
+    return null;
+  }
+}
+
 /**
- * Devolve a aba do feed a usar: reaproveita uma que já esteja aberta no YouTube,
- * senão abre uma nova **em segundo plano** — abrir em primeiro plano arrancaria
- * o usuário do que ele está fazendo.
+ * Devolve a aba própria da colheita: reaproveita a que ficou de uma rodada
+ * interrompida, senão abre uma nova **em segundo plano** — abrir em primeiro
+ * plano arrancaria o usuário do que ele está fazendo. Aba do usuário não entra
+ * na conta: a extensão não navega nem colhe naquilo que ela não abriu.
  */
 export async function ensureFeedTab() {
-  const existing = await chrome.tabs.query({ url: ['https://www.youtube.com/*'] });
-  const usable = existing.find((tab) => typeof tab.id === 'number' && tab.id >= 0);
-
-  if (usable && typeof usable.id === 'number') {
-    await chrome.tabs.update(usable.id, { url: FEED_URL });
-    await waitForComplete(usable.id);
-    return { tabId: usable.id, reused: true };
+  const ownedId = await readOwnedTabId();
+  if (typeof ownedId === 'number') {
+    const owned = await getTabOrNull(ownedId);
+    if (owned) {
+      await chrome.tabs.update(ownedId, { url: FEED_URL });
+      await waitForComplete(ownedId);
+      return { tabId: ownedId, reused: true };
+    }
+    await forgetOwnedTab(ownedId);
   }
 
   const created = await chrome.tabs.create({ url: FEED_URL, active: false });
   if (typeof created.id !== 'number') {
     throw new Error('não foi possível abrir a aba do YouTube');
   }
+  await rememberOwnedTab(created.id);
   await waitForComplete(created.id);
   return { tabId: created.id, reused: false };
 }
@@ -138,4 +174,44 @@ export async function harvestFromTab(tabId) {
     buildLabel: payload.buildLabel,
     windowState,
   };
+}
+
+/**
+ * Fecha a aba própria. "Já não existe" é sucesso; falha de verdade devolve
+ * `closed: false` **e mantém a posse**, para a próxima rodada tentar de novo em
+ * vez de deixar a aba órfã para sempre.
+ */
+export async function closeFeedTab(tabId) {
+  try {
+    await chrome.tabs.remove(tabId);
+    await forgetOwnedTab(tabId);
+    return { closed: true };
+  } catch (error) {
+    if (await getTabOrNull(tabId)) {
+      return { closed: false, reason: String(error).slice(0, 200) };
+    }
+    await forgetOwnedTab(tabId);
+    return { closed: true, alreadyGone: true };
+  }
+}
+
+/**
+ * A colheita inteira numa aba própria e descartável: garante a aba, extrai e
+ * fecha — com sucesso ou com falha. É o único caminho de colheita; quem chama
+ * `harvestFromTab` direto não fecha nada.
+ */
+export async function harvestInOwnTab() {
+  const { tabId, reused } = await ensureFeedTab();
+
+  let harvest = null;
+  let failure = null;
+  try {
+    harvest = await harvestFromTab(tabId);
+  } catch (error) {
+    failure = error;
+  }
+
+  const closing = await closeFeedTab(tabId);
+  if (failure) throw failure;
+  return { ...harvest, reused, tabClosed: closing.closed };
 }

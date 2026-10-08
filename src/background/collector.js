@@ -6,7 +6,7 @@
  * que a extensão inicia, em vez de ser comandada.
  */
 import { flushQueue, queueHarvest, recordDelivery, sendHarvest } from './bridge-client.js';
-import { ensureFeedTab, harvestFromTab } from './youtube-tab.js';
+import { harvestInOwnTab } from './youtube-tab.js';
 
 const LAST_RUN_KEY = 'lastCollectRun';
 
@@ -25,51 +25,48 @@ export async function collectNow(trigger) {
     // Falha ao esvaziar a fila não impede a colheita de hoje.
   }
 
+  let outcome;
   try {
-    const { tabId, reused } = await ensureFeedTab();
-    const { cards, buildLabel, windowState } = await harvestFromTab(tabId);
+    // A colheita inteira acontece numa aba própria, fechada ao fim: as abas do
+    // usuário não são selecionadas, navegadas nem fechadas.
+    const { cards, buildLabel, windowState, reused, tabClosed } = await harvestInOwnTab();
 
     if (cards.length === 0) {
-      const summary = {
-        at: startedAt,
-        trigger,
+      outcome = {
         ok: false,
         error: 'nenhum card encontrado — o layout do YouTube pode ter mudado',
-        flushed,
+        reusedTab: reused,
+        tabClosed,
       };
-      await chrome.storage.local.set({ [LAST_RUN_KEY]: summary });
-      return summary;
+    } else {
+      const harvest = {
+        collectedAt: new Date().toISOString(),
+        source: 'https://www.youtube.com/',
+        buildLabel,
+        cards,
+      };
+
+      const delivery = await sendHarvest(harvest);
+      if (!delivery.ok) await queueHarvest(harvest);
+      await recordDelivery(delivery);
+
+      outcome = {
+        ok: delivery.ok,
+        cardCount: cards.length,
+        reusedTab: reused,
+        tabClosed,
+        maximized: windowState.maximized,
+        maximizeReason: windowState.reason,
+        delivery: delivery.ok ? 'entregue' : delivery.detail,
+      };
     }
-
-    const harvest = {
-      collectedAt: new Date().toISOString(),
-      source: 'https://www.youtube.com/',
-      buildLabel,
-      cards,
-    };
-
-    const delivery = await sendHarvest(harvest);
-    if (!delivery.ok) await queueHarvest(harvest);
-    await recordDelivery(delivery);
-
-    const summary = {
-      at: startedAt,
-      trigger,
-      ok: delivery.ok,
-      cardCount: cards.length,
-      reusedTab: reused,
-      maximized: windowState.maximized,
-      maximizeReason: windowState.reason,
-      delivery: delivery.ok ? 'entregue' : delivery.detail,
-      flushed,
-    };
-    await chrome.storage.local.set({ [LAST_RUN_KEY]: summary });
-    return summary;
   } catch (error) {
-    const summary = { at: startedAt, trigger, ok: false, error: String(error), flushed };
-    await chrome.storage.local.set({ [LAST_RUN_KEY]: summary });
-    return summary;
+    outcome = { ok: false, error: String(error) };
   }
+
+  const summary = { at: startedAt, trigger, ...outcome, flushed };
+  await chrome.storage.local.set({ [LAST_RUN_KEY]: summary });
+  return summary;
 }
 
 export async function readLastRun() {
