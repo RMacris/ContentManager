@@ -9,7 +9,7 @@
  * O payload abaixo reproduz a estrutura verbatim capturada na inspeção ao vivo
  * registrada no ticket 04 do mapa (build youtube.desktop.web_20261002_10_RC00).
  */
-import { extractFeedCards, scrollThreeViewports } from '../src/injected/feed-extract.js';
+import { extractFeedCards, parseInitialDataFromHtml, scrollThreeViewports } from '../src/injected/feed-extract.js';
 
 let failures = 0;
 function check(label, condition, detail = '') {
@@ -188,6 +188,35 @@ process.stdout.write('payload ausente:\n');
 delete globalThis.window.ytInitialData;
 const missing = extractFeedCards(30);
 check('sem ytInitialData devolve falha explícita', missing.ok === false, String(missing.reason));
+
+process.stdout.write('dados passados explicitamente (rota sem aba):\n');
+const viaData = extractFeedCards(30, ytInitialData);
+check(
+  'extrai igual pelo caminho explícito',
+  viaData.ok === true && viaData.cards.length === 3,
+  `veio ${viaData.cards.length}`,
+);
+
+process.stdout.write('ytInitialData embutido no HTML:\n');
+const html = `<script>var ytInitialData = ${JSON.stringify(ytInitialData)};</script>`;
+const parsedHtml = parseInitialDataFromHtml(html);
+check('JSON embutido foi parseado', parsedHtml !== null && typeof parsedHtml === 'object');
+const fromHtml = parsedHtml ? extractFeedCards(30, parsedHtml) : null;
+check(
+  'cards extraídos do HTML batem com os da página',
+  fromHtml && fromHtml.ok === true && fromHtml.cards.length === 3,
+  fromHtml ? `veio ${fromHtml.cards.length}` : 'sem parse',
+);
+
+const tricky = { x: { y: '}{' }, s: 'ele disse "oi"' };
+const trickyHtml = `<script>var ytInitialData = ${JSON.stringify(tricky)};</script>`;
+const trickyParsed = parseInitialDataFromHtml(trickyHtml);
+check(
+  'parser respeita chaves e aspas dentro de strings',
+  trickyParsed && trickyParsed.x && trickyParsed.x.y === '}{' && trickyParsed.s === 'ele disse "oi"',
+  JSON.stringify(trickyParsed),
+);
+check('HTML sem o marcador devolve null', parseInitialDataFromHtml('<html>nada</html>') === null);
 
 process.stdout.write('rolagem de reserva:\n');
 globalThis.window.innerHeight = 800;

@@ -15,10 +15,17 @@
  * Lê os cards do topo do feed a partir do `ytInitialData`.
  *
  * @param {number} maxCards teto de cards — só o topo, sem paginar.
+ * @param {object|null} data JSON já pronto (rota sem aba, no service worker);
+ *   na página, `null` faz a função ler `window.ytInitialData`, como sempre.
  */
-export function extractFeedCards(maxCards) {
-  const data = window.ytInitialData;
-  if (!data || typeof data !== 'object') {
+export function extractFeedCards(maxCards, data = null) {
+  const source =
+    data && typeof data === 'object'
+      ? data
+      : typeof window !== 'undefined'
+        ? window.ytInitialData
+        : null;
+  if (!source || typeof source !== 'object') {
     return { ok: false, reason: 'ytInitialData ausente', cards: [], buildLabel: null };
   }
 
@@ -171,11 +178,11 @@ export function extractFeedCards(maxCards) {
     for (let i = 0; i < keys.length; i++) walk(node[keys[i]]);
   }
 
-  walk(data);
+  walk(source);
 
   let buildLabel = null;
   try {
-    if (window.ytcfg && typeof window.ytcfg.get === 'function') {
+    if (typeof window !== 'undefined' && window.ytcfg && typeof window.ytcfg.get === 'function') {
       const label = window.ytcfg.get('PAGE_BUILD_LABEL');
       if (typeof label === 'string') buildLabel = label;
     }
@@ -184,6 +191,45 @@ export function extractFeedCards(maxCards) {
   }
 
   return { ok: true, reason: null, cards, buildLabel };
+}
+
+/**
+ * Extrai o `ytInitialData` embutido no HTML da página — o mesmo JSON que a
+ * página usa. Devolve `null` quando o marcador não existe ou o JSON não fecha.
+ * É a rota sem aba: o service worker busca o HTML e entrega o objeto aqui.
+ */
+export function parseInitialDataFromHtml(html) {
+  if (typeof html !== 'string') return null;
+  const at = html.indexOf('ytInitialData = ');
+  if (at < 0) return null;
+  const start = html.indexOf('{', at);
+  if (start < 0) return null;
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < html.length; i++) {
+    const ch = html[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === '\\') escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    else if (ch === '{') depth += 1;
+    else if (ch === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        try {
+          return JSON.parse(html.slice(start, i + 1));
+        } catch {
+          return null;
+        }
+      }
+    }
+  }
+  return null;
 }
 
 /**
