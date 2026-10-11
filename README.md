@@ -158,7 +158,14 @@ MAIN, com a sessão e o `ytcfg` da página) e segue até o fim, com teto de cana
 tempo. Se o retrato não trouxer continuação nenhuma, uma consulta final pelo `browseId` da página
 confirma se a lista acabou. A extração é tolerante à forma (a referência do `channelRenderer` foi
 medida num resultado de busca) e o popup só avisa "lista parcial" quando a coleta **parou antes do
-fim** — teto, tempo ou falha de rede —, com o motivo e quantas continuações seguiu.
+fim** — com o motivo em português e quantas continuações seguiu. Três situações não juram fim: a
+consulta de fecho que falha, a que devolve uma resposta sem grade reconhecível, e a continuação
+que não produz canal nenhum — corrente morta é forma desconhecida, não lista completa.
+
+O censo estrutural de cada varredura (onde mora o primeiro canal, e toda chave com
+`continuation`/`token`/`nextPage` no caminho) fica gravado em `chrome.storage.local` sob
+`lastSubscriptionsDiagnostics`, com a versão da extensão — é assim que a forma logada da página
+pode ser medida sem navegador, e é onde a próxima divergência de forma se denuncia sozinha.
 
 ### Estrutura
 
@@ -212,10 +219,11 @@ encerrada por sucesso; chamadas concorrentes colhem uma vez só) com um dublê d
 A coleta das inscrições tem as próprias suítes: a **extração** contra um `channelRenderer` real
 (handle, avatar, contagem de inscritos, dedupe e ruído da página) e a **paginação** com `fetch` e
 `ytcfg` dublês — a continuação seguida até o fim (forma clássica e a renomeada), o token de outra
-seção ignorado, o teto cortando sem gastar pedido, a falha de rede declarando parcial e o `400` do
-token final fechando a lista; e a **coreografia** da aba própria (segundo plano, fechada ao fim,
-entrega com token, lista vazia e falha sem aba órfã, rodada reaproveitada depois de uma morte do
-worker).
+seção ignorado, o teto cortando sem gastar pedido, a falha de rede declarando parcial, o `400` do
+token final fechando a lista, e as três correntes que **não** juram fim (fecho falho, fecho sem
+grade reconhecível e continuação morta), mais o censo estrutural que sai em `diagnostics`; e a
+**coreografia** da aba própria (segundo plano, fechada ao fim, entrega com token, lista vazia e
+falha sem aba órfã, rodada reaproveitada depois de uma morte do worker, censo gravado no storage).
 
 ## Installation
 
