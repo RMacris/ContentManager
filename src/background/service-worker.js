@@ -15,6 +15,7 @@ import { flushQueue, pingBridge, readDelivery } from './bridge-client.js';
 import { collectNow, readLastRun } from './collector.js';
 import { probeFeedHtml } from './feed-probe.js';
 import { ALARM_NAME, getSettings, rescheduleAlarm, RETRY_ALARM_NAME, saveSettings } from './settings.js';
+import { collectSubscriptions, readLastSubscriptionsRun } from './subscriptions.js';
 
 chrome.runtime.onInstalled.addListener(() => {
   void (async () => {
@@ -52,11 +53,15 @@ async function handleMessage(message) {
     case 'collectNow':
       return { action: 'collectNow', summary: await collectNow('manual') };
 
+    case 'collectSubscriptions':
+      return { action: 'collectSubscriptions', summary: await collectSubscriptions('manual') };
+
     case 'status':
       return {
         action: 'status',
         settings: await getSettings(),
         lastRun: await readLastRun(),
+        lastSubscriptionsRun: await readLastSubscriptionsRun(),
         delivery: await readDelivery(),
         bridge: await pingBridge(),
       };

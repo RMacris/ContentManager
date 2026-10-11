@@ -12,6 +12,7 @@ function initialize() {
   document.getElementById('blockUrl').addEventListener('click', handleBlockUrl);
   document.getElementById('saveSettings').addEventListener('click', handleSaveSettings);
   document.getElementById('collectNow').addEventListener('click', handleCollectNow);
+  document.getElementById('collectSubscriptions').addEventListener('click', handleCollectSubscriptions);
   loadBlockedUrls();
   loadStatus();
 }
@@ -104,6 +105,26 @@ async function loadStatus() {
   }
 
   setText('collectStatus', lines.join('\n'));
+  renderSubscriptionsStatus(status.lastSubscriptionsRun);
+}
+
+/** A linha das inscrições: a última coleta, com o que ela trouxe ou por que falhou. */
+function renderSubscriptionsStatus(run) {
+  const lines = [];
+  if (!run) {
+    lines.push('nenhuma coleta de inscrições ainda');
+  } else {
+    const when = new Date(run.at).toLocaleString();
+    if (run.ok) {
+      lines.push(`${run.channelCount} canais coletados em ${when}`);
+      if (run.hasMore) lines.push('o YouTube indicou que há mais itens — a lista pode estar parcial');
+    } else {
+      lines.push(`última coleta de inscrições falhou em ${when}`);
+      lines.push(`motivo: ${run.error ?? run.delivery ?? 'sem detalhe'}`);
+    }
+    if (run.tabClosed === false) lines.push('atenção: a aba da coleta não pôde ser fechada');
+  }
+  setText('subscriptionsStatus', lines.join('\n'));
 }
 
 async function handleSaveSettings() {
@@ -131,6 +152,23 @@ async function handleCollectNow() {
     displayMessage('collectMessage', `Colheita entregue: ${summary.cardCount} cards.`, false);
   } else {
     displayMessage('collectMessage', `Falhou: ${summary.error || summary.delivery}`, true);
+  }
+  loadStatus();
+}
+
+async function handleCollectSubscriptions() {
+  displayMessage('subscriptionsMessage', 'Coletando inscrições…', false);
+  const response = await chrome.runtime.sendMessage({ action: 'collectSubscriptions' });
+  const summary = response && response.summary;
+
+  if (!summary) {
+    displayMessage('subscriptionsMessage', 'A coleta não devolveu resultado.', true);
+    return;
+  }
+  if (summary.ok) {
+    displayMessage('subscriptionsMessage', `Inscrições entregues: ${summary.channelCount} canais.`, false);
+  } else {
+    displayMessage('subscriptionsMessage', `Falhou: ${summary.error || summary.delivery}`, true);
   }
   loadStatus();
 }

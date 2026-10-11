@@ -42,6 +42,37 @@ export async function sendHarvest(harvest) {
   }
 }
 
+/**
+ * A entrega das inscrições — caminho próprio, sem fila de reenvio: a coleta é
+ * manual e uma falha se resolve clicando de novo. Mesmo contrato do `/harvest`:
+ * uma tentativa, nunca lança, devolve o resultado.
+ */
+export async function sendSubscriptions(subscriptions) {
+  const { bridgeUrl, bridgeToken } = await getSettings();
+
+  if (bridgeToken === '') {
+    return { ok: false, status: 0, detail: 'token não configurado no popup' };
+  }
+
+  try {
+    const response = await fetch(`${baseUrl(bridgeUrl)}/subscriptions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-yti-token': bridgeToken },
+      body: JSON.stringify(subscriptions),
+    });
+
+    if (!response.ok) {
+      const detail = await response.text().catch(() => '');
+      return { ok: false, status: response.status, detail: detail.slice(0, 200) };
+    }
+
+    const body = await response.json().catch(() => ({}));
+    return { ok: true, status: response.status, body };
+  } catch (error) {
+    return { ok: false, status: 0, detail: String(error).slice(0, 200) };
+  }
+}
+
 /** Guarda um lote para reenviar depois, respeitando o teto da fila. */
 export async function queueHarvest(harvest) {
   const stored = await chrome.storage.local.get({ [QUEUE_KEY]: [] });

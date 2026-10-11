@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Bloqueador de HTTP e Sites",
-  "version": "1.4",
-  "description": "Bloqueie sites indesejados e colha o topo do feed do YouTube para filtragem local.",
+  "version": "1.5",
+  "description": "Bloqueie sites indesejados, colha o topo do feed do YouTube e colete as inscrições para filtragem local.",
   "permissions": [
     "storage",
     "declarativeNetRequest",

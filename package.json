@@ -1,10 +1,10 @@
 {
   "name": "content-manager-extension",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "private": true,
   "type": "module",
-  "description": "Extensão do Chrome: bloqueio de URLs indesejadas e coleta do topo do feed do YouTube.",
+  "description": "Extensão do Chrome: bloqueio de URLs indesejadas, coleta do topo do feed do YouTube e coleta das inscrições.",
   "scripts": {
-    "test": "node test/feed-extract.test.mjs && node test/youtube-tab.test.mjs && node test/collector.test.mjs"
+    "test": "node test/feed-extract.test.mjs && node test/youtube-tab.test.mjs && node test/collector.test.mjs && node test/subscriptions-extract.test.mjs && node test/subscriptions.test.mjs"
   }
 }

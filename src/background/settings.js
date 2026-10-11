@@ -19,6 +19,11 @@ export const DEFAULT_SETTINGS = {
   /** Teto de cards por colheita: só o topo do feed, sem paginar. */
   maxCards: 30,
   /**
+   * Teto de canais por coleta de inscrições. A página das inscrições tende a vir
+   * inteira num JSON só; o teto só protege contra uma página patológica.
+   */
+  maxSubscriptions: 1000,
+  /**
    * Maximizar a janela antes de colher (com rolagem de três telas como reserva).
    * Desligado por padrão: a coleta lê o JSON da página, não a tela, e maximizar
    * uma janela de fundo mexe no que o usuário está fazendo — um jogo em tela

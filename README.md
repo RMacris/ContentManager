@@ -145,6 +145,15 @@ colateral é bom: nenhum agente consegue mandar esta extensão fazer nada.
 praticamente todos os avatares vêm vazios por lazy loading, enquanto o payload da página tem
 todos. A leitura acontece no mundo MAIN, porque o `ytInitialData` vive no escopo da página.
 
+**Colher inscrições (manual).** O popup também tem o botão **"Colher inscrições"**: abre
+`youtube.com/feed/channels` numa aba própria **em segundo plano**, lê o `ytInitialData` no mundo
+MAIN (mesmo caminho JSON-first do feed), entrega por `POST /subscriptions` e fecha a aba —
+sucesso ou falha. A ponte grava o retrato em `state/subscriptions.json`, e é essa lista que o
+painel do harness usa para sugerir `@handles` ao editar os canais de confiança. Lista vazia é
+falha declarada (quase sempre é login/consentimento), nunca um vazio por cima de uma lista boa; a
+extração é tolerante à forma (a referência foi medida num resultado de busca) e o popup avisa
+quando a página indica que há mais itens.
+
 ### Estrutura
 
 ```
@@ -154,13 +163,16 @@ src/
 │   ├── service-worker.js  ponto de entrada: alarme e mensagens
 │   ├── blocking.js        bloqueio de URLs (declarativeNetRequest)
 │   ├── settings.js        preferências, token e agendamento do alarme
-│   ├── youtube-tab.js     abrir/colher/fechar a aba própria
+│   ├── owned-tab.js       a aba própria: abrir/esperar/extrair/fechar (posse por finalidade)
+│   ├── youtube-tab.js     a finalidade "feed": extração dos cards
 │   ├── collector.js       orquestra a colheita
+│   ├── subscriptions.js   orquestra a coleta das inscrições (manual, pelo popup)
 │   └── bridge-client.js   entrega por HTTP e fila de pendentes
 ├── content/
 │   └── block-guard.js     redireciona URLs bloqueadas (script clássico)
 ├── injected/
-│   └── feed-extract.js    lê os cards no mundo MAIN da página
+│   ├── feed-extract.js    lê os cards no mundo MAIN da página
+│   └── subscriptions-extract.js  lê as inscrições no mundo MAIN da página
 └── popup/                 interface: bloqueio e configuração da coleta
 ```
 
@@ -170,7 +182,8 @@ No popup: ligar/desligar a coleta, o período em minutos, a URL da ponte e o tok
 gerado pela ponte em `state/token.txt`, na pasta dela — ele fica em `chrome.storage.local`, não
 em `sync`, porque um segredo local não deve viajar entre máquinas. O painel do popup mostra a
 última rodada com o gatilho — **automática**, **manual** ou **retentativa** —, o que deixa
-visível que a coleta periódica está andando mesmo sem clique.
+visível que a coleta periódica está andando mesmo sem clique. A seção **Inscrições** tem linha de
+status própria: quantos canais foram coletados, quando, e o motivo quando falhou.
 
 ### Permissões
 
@@ -189,6 +202,11 @@ Shorts, playlist, card sem avatar e o formato antigo —, o ciclo de vida da aba
 intocada, aba própria fechada sempre, recuperação de uma colheita interrompida, espera da
 navegação antes de extrair) e a orquestração da colheita (retentativa agendada, com teto e
 encerrada por sucesso; chamadas concorrentes colhem uma vez só) com um dublê de `chrome`.
+
+A coleta das inscrições tem as próprias suítes: a **extração** contra um `channelRenderer` real
+(handle, avatar, contagem de inscritos, dedupe, ruído da página e indicação de continuação) e a
+**coreografia** da aba própria (segundo plano, fechada ao fim, entrega com token, lista vazia e
+falha sem aba órfã, rodada reaproveitada depois de uma morte do worker).
 
 ## Installation
 
