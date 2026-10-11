@@ -117,7 +117,12 @@ function renderSubscriptionsStatus(run) {
     const when = new Date(run.at).toLocaleString();
     if (run.ok) {
       lines.push(`${run.channelCount} canais coletados em ${when}`);
-      if (run.hasMore) lines.push('o YouTube indicou que há mais itens — a lista pode estar parcial');
+      if (typeof run.pages === 'number' && run.pages > 0) {
+        lines.push(`percorreu ${run.pages} continuaç${run.pages === 1 ? 'ão' : 'ões'} da lista`);
+      }
+      if (run.hasMore) {
+        lines.push(`a coleta parou antes do fim${run.stopReason ? ` (${run.stopReason})` : ''} — a lista pode estar parcial`);
+      }
     } else {
       lines.push(`última coleta de inscrições falhou em ${when}`);
       lines.push(`motivo: ${run.error ?? run.delivery ?? 'sem detalhe'}`);
@@ -166,7 +171,8 @@ async function handleCollectSubscriptions() {
     return;
   }
   if (summary.ok) {
-    displayMessage('subscriptionsMessage', `Inscrições entregues: ${summary.channelCount} canais.`, false);
+    const partial = summary.hasMore ? ' A lista pode estar parcial.' : '';
+    displayMessage('subscriptionsMessage', `Inscrições entregues: ${summary.channelCount} canais.${partial}`, false);
   } else {
     displayMessage('subscriptionsMessage', `Falhou: ${summary.error || summary.delivery}`, true);
   }

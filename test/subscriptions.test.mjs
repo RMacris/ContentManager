@@ -57,7 +57,7 @@ function fakeChrome() {
     ]),
     nextTabId: 100,
     calls: { query: 0, create: [], update: [], remove: [], script: [] },
-    scriptResult: { ok: true, channels: CHANNELS, hasMore: false },
+    scriptResult: { ok: true, channels: CHANNELS, hasMore: false, pages: 2, stopReason: 'complete' },
     scriptError: null,
     scriptGate: null,
     fetchCalls: [],
@@ -228,8 +228,15 @@ process.stdout.write('a coleta das inscrições:\n');
   check('com a origem da coleta', call.body.source === SUBS_URL, String(call.body.source));
   check('com o carimbo de tempo', typeof call.body.collectedAt === 'string' && call.body.collectedAt !== '');
 
+  check('sem aviso de parcial', summary.hasMore === false);
+  check('o resumo declara a paginação', summary.pages === 2 && summary.stopReason === 'complete', `${summary.pages}/${summary.stopReason}`);
+
   const run = state.local.lastSubscriptionsRun;
-  check('o resumo ficou no storage do popup', run && run.ok === true && run.channelCount === 2, JSON.stringify(run));
+  check(
+    'o resumo ficou no storage do popup',
+    run && run.ok === true && run.channelCount === 2 && run.pages === 2,
+    JSON.stringify(run),
+  );
 }
 
 process.stdout.write('duas chamadas concorrentes compartilham a rodada:\n');

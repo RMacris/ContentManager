@@ -82,6 +82,8 @@ async function executeCollect(trigger) {
         ok: delivery.ok,
         channelCount: extracted.channels.length,
         hasMore: extracted.hasMore === true,
+        pages: typeof extracted.pages === 'number' ? extracted.pages : null,
+        stopReason: extracted.stopReason ?? null,
         reusedTab: reused,
         tabClosed: closing.closed,
         delivery: delivery.ok ? 'entregue' : delivery.detail,

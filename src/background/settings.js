@@ -19,8 +19,9 @@ export const DEFAULT_SETTINGS = {
   /** Teto de cards por colheita: só o topo do feed, sem paginar. */
   maxCards: 30,
   /**
-   * Teto de canais por coleta de inscrições. A página das inscrições tende a vir
-   * inteira num JSON só; o teto só protege contra uma página patológica.
+   * Teto de canais por coleta de inscrições. A coleta segue as continuações da
+   * página até o fim (o `ytInitialData` traz só a primeira leva); o teto só
+   * protege contra uma página patológica.
    */
   maxSubscriptions: 1000,
   /**

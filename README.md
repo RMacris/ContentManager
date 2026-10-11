@@ -150,9 +150,15 @@ todos. A leitura acontece no mundo MAIN, porque o `ytInitialData` vive no escopo
 MAIN (mesmo caminho JSON-first do feed), entrega por `POST /subscriptions` e fecha a aba —
 sucesso ou falha. A ponte grava o retrato em `state/subscriptions.json`, e é essa lista que o
 painel do harness usa para sugerir `@handles` ao editar os canais de confiança. Lista vazia é
-falha declarada (quase sempre é login/consentimento), nunca um vazio por cima de uma lista boa; a
-extração é tolerante à forma (a referência foi medida num resultado de busca) e o popup avisa
-quando a página indica que há mais itens.
+falha declarada (quase sempre é login/consentimento), nunca um vazio por cima de uma lista boa.
+
+A página só embute a **primeira leva** de inscrições no JSON; o resto chega por continuação — o
+mesmo pedido que o scroll da página dispara. A extensão pede a continuação diretamente (mundo
+MAIN, com a sessão e o `ytcfg` da página) e segue até o fim, com teto de canais, de páginas e de
+tempo. Se o retrato não trouxer continuação nenhuma, uma consulta final pelo `browseId` da página
+confirma se a lista acabou. A extração é tolerante à forma (a referência do `channelRenderer` foi
+medida num resultado de busca) e o popup só avisa "lista parcial" quando a coleta **parou antes do
+fim** — teto, tempo ou falha de rede —, com o motivo e quantas continuações seguiu.
 
 ### Estrutura
 
@@ -204,9 +210,12 @@ navegação antes de extrair) e a orquestração da colheita (retentativa agenda
 encerrada por sucesso; chamadas concorrentes colhem uma vez só) com um dublê de `chrome`.
 
 A coleta das inscrições tem as próprias suítes: a **extração** contra um `channelRenderer` real
-(handle, avatar, contagem de inscritos, dedupe, ruído da página e indicação de continuação) e a
-**coreografia** da aba própria (segundo plano, fechada ao fim, entrega com token, lista vazia e
-falha sem aba órfã, rodada reaproveitada depois de uma morte do worker).
+(handle, avatar, contagem de inscritos, dedupe e ruído da página) e a **paginação** com `fetch` e
+`ytcfg` dublês — a continuação seguida até o fim (forma clássica e a renomeada), o token de outra
+seção ignorado, o teto cortando sem gastar pedido, a falha de rede declarando parcial e o `400` do
+token final fechando a lista; e a **coreografia** da aba própria (segundo plano, fechada ao fim,
+entrega com token, lista vazia e falha sem aba órfã, rodada reaproveitada depois de uma morte do
+worker).
 
 ## Installation
 
