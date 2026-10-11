@@ -196,7 +196,8 @@ gerado pela ponte em `state/token.txt`, na pasta dela — ele fica em `chrome.st
 em `sync`, porque um segredo local não deve viajar entre máquinas. O painel do popup mostra a
 última rodada com o gatilho — **automática**, **manual** ou **retentativa** —, o que deixa
 visível que a coleta periódica está andando mesmo sem clique. A seção **Inscrições** tem linha de
-status própria: quantos canais foram coletados, quando, e o motivo quando falhou.
+status própria: quantos canais a ponte **confirmou ter guardado** — a contagem que o painel
+desenha, tirada do dado, não o número que a extração declarou —, quando, e o motivo quando falhou.
 
 ### Permissões
 

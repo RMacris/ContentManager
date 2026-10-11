@@ -63,6 +63,8 @@ function fakeChrome() {
     fetchCalls: [],
     fetchError: null,
     listeners: [],
+    /** Resposta crua da ponte quando o teste quer fugir do dublê padrão. */
+    bridgeBody: null,
   };
 
   state.finishNavigation = (tabId, url) => {
@@ -188,6 +190,9 @@ function fakeChrome() {
       body: options?.body ? JSON.parse(options.body) : null,
     });
     if (state.fetchError) throw new Error(state.fetchError);
+    if (state.bridgeBody !== null) {
+      return { ok: true, status: 200, json: async () => state.bridgeBody };
+    }
     const parsed = options?.body ? JSON.parse(options.body) : null;
     return { ok: true, status: 200, json: async () => ({ stored: parsed?.channels?.length ?? 0 }) };
   };
@@ -240,6 +245,42 @@ process.stdout.write('a coleta das inscrições:\n');
     run && run.ok === true && run.channelCount === 2 && run.pages === 2,
     JSON.stringify(run),
   );
+}
+
+process.stdout.write('a contagem exibida é a que a ponte confirmou — o dado:\n');
+{
+  const state = fakeChrome();
+  // A ponte é quem decide o que existe no retrato: se ela gravar menos do que
+  // recebeu, a UI mostra o que foi gravado, não o que a extração declarou.
+  state.bridgeBody = { stored: 1 };
+  const summary = await collectSubscriptions('manual');
+
+  check('a coleta deu certo', summary.ok === true, String(summary.error ?? summary.delivery));
+  check(
+    'a contagem vem do que a ponte gravou, não da extração',
+    summary.channelCount === 1,
+    String(summary.channelCount),
+  );
+  check(
+    'os dois canais foram entregues mesmo assim',
+    state.fetchCalls[0].body.channels.length === 2,
+    String(state.fetchCalls[0].body.channels.length),
+  );
+  check(
+    'o resumo guardado usa a mesma contagem',
+    state.local.lastSubscriptionsRun.channelCount === 1,
+    JSON.stringify(state.local.lastSubscriptionsRun),
+  );
+}
+
+process.stdout.write('sem confirmação da ponte, vale a contagem extraída:\n');
+{
+  const state = fakeChrome();
+  state.bridgeBody = {};
+  const summary = await collectSubscriptions('manual');
+
+  check('a coleta deu certo', summary.ok === true, String(summary.error ?? summary.delivery));
+  check('a contagem cai na extração', summary.channelCount === 2, String(summary.channelCount));
 }
 
 process.stdout.write('o censo estrutural fica legível no storage local:\n');

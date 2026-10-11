@@ -98,10 +98,18 @@ async function executeCollect(trigger) {
         channels: extracted.channels,
       };
       const delivery = await sendSubscriptions(payload);
+      // A contagem mostrada na UI é a que a ponte **confirmou ter gravado** — o
+      // dado de `state/subscriptions.json`, não o número que a extração declarou.
+      // A validação da ponte é quem decide o que existe no retrato; sem a
+      // confirmação (resposta sem `stored`), vale o que foi extraído.
+      const stored =
+        delivery.ok === true && delivery.body && typeof delivery.body.stored === 'number'
+          ? delivery.body.stored
+          : null;
 
       outcome = {
         ok: delivery.ok,
-        channelCount: extracted.channels.length,
+        channelCount: stored ?? extracted.channels.length,
         hasMore: extracted.hasMore === true,
         pages: typeof extracted.pages === 'number' ? extracted.pages : null,
         stopReason: extracted.stopReason ?? null,
