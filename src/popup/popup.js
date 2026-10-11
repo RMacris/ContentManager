@@ -62,6 +62,19 @@ async function handleRemoveBlockRule(ruleId) {
 /** Como o popup chama cada gatilho da colheita. */
 const TRIGGER_LABELS = { alarme: 'automática', manual: 'manual', retentativa: 'retentativa' };
 
+/** O motivo da parada na coleta de inscrições, em português. */
+const STOP_REASON_LABELS = {
+  cap: 'teto de canais',
+  'time-budget': 'tempo da rodada esgotado',
+  'page-limit': 'muitas páginas seguidas',
+  loop: 'a página repetiu o token',
+  'fetch-failed': 'um pedido de continuação falhou',
+  'bootstrap-failed': 'a consulta de fecho falhou',
+  'bootstrap-unrecognized': 'a resposta de fecho não tinha grade reconhecível',
+  'stale-continuation': 'a continuação não devolveu canal nenhum',
+  'missing-config': 'a página não expôs a chave do YouTube',
+};
+
 async function loadStatus() {
   const status = await chrome.runtime.sendMessage({ action: 'status' });
   if (!status || status.action !== 'status') {
@@ -121,7 +134,8 @@ function renderSubscriptionsStatus(run) {
         lines.push(`percorreu ${run.pages} continuaç${run.pages === 1 ? 'ão' : 'ões'} da lista`);
       }
       if (run.hasMore) {
-        lines.push(`a coleta parou antes do fim${run.stopReason ? ` (${run.stopReason})` : ''} — a lista pode estar parcial`);
+        const why = STOP_REASON_LABELS[run.stopReason] ?? run.stopReason ?? 'motivo não declarado';
+        lines.push(`a coleta parou antes do fim (${why}) — a lista pode estar parcial`);
       }
     } else {
       lines.push(`última coleta de inscrições falhou em ${when}`);

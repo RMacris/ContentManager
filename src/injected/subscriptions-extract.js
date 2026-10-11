@@ -41,7 +41,7 @@ export async function extractSubscriptions(maxChannels, data = null, options = n
         ? window.ytInitialData
         : null;
   if (!source || typeof source !== 'object') {
-    return { ok: false, reason: 'ytInitialData ausente', channels: [], hasMore: false, pages: 0, stopReason: null };
+    return { ok: false, reason: 'ytInitialData ausente', channels: [], hasMore: false, pages: 0, stopReason: null, diagnostics: null };
   }
 
   const limit = typeof maxChannels === 'number' && maxChannels > 0 ? maxChannels : 1000;
@@ -180,33 +180,80 @@ export async function extractSubscriptions(maxChannels, data = null, options = n
    * Varre um JSON (o retrato da página ou uma resposta de continuação). Os
    * canais entram em `channels`, com dedupe por id e o teto; devolve `next`, a
    * continuação **mais próxima dos canais** — token de outra seção (guia ou
-   * chips de ordenação) fica de fora quando há canal para comparar.
+   * chips de ordenação) fica de fora quando há canal para comparar — e `diag`,
+   * o censo estrutural do que foi visto: onde mora o primeiro canal e toda chave
+   * com "continuation", "token", "nextPage" ou "morePages" no caminho. É o que
+   * denuncia uma forma nova da página em vez de deixar o leitor jurar fim.
    */
-  function scan(root) {
+  function scan(root, label) {
     const tokens = [];
     const stacks = [];
+    const diag = {
+      label,
+      top: root !== null && typeof root === 'object' ? Object.keys(root).slice(0, 16) : [],
+      channelsSeen: 0,
+      firstChannelPath: null,
+      continuationKeys: [],
+      tokenKeys: [],
+    };
 
-    function walk(node, stack) {
+    function recordContinuationKey(key, value, node) {
+      if (diag.continuationKeys.length < 30) {
+        diag.continuationKeys.push({
+          k: key,
+          p: trail.join('') + '.' + key,
+          c: value !== null && typeof value === 'object' ? Object.keys(value).slice(0, 8).join(',') : typeof value,
+        });
+      }
+      const found = tokenFrom(node[key]);
+      if (found !== null) tokens.push({ token: found.token, request: found.request, stack: stack.slice() });
+    }
+
+    function recordTokenKey(key, value) {
+      if (diag.tokenKeys.length >= 30) return;
+      let shape;
+      if (value === null || value === undefined) shape = String(value);
+      else if (typeof value === 'object') shape = '{' + Object.keys(value).slice(0, 6).join(',') + '}';
+      else shape = typeof value === 'string' ? 'str(' + value.length + ') ' + value.slice(0, 48) : String(value);
+      diag.tokenKeys.push({ k: key, p: trail.join('') + '.' + key, t: shape });
+    }
+
+    let stack = [];
+    let trail = [];
+
+    function walk(node) {
       if (node === null || typeof node !== 'object') return;
 
       if (Array.isArray(node)) {
         stack.push(node);
-        for (let i = 0; i < node.length; i++) walk(node[i], stack);
+        for (let i = 0; i < node.length; i++) {
+          trail.push('[' + i + ']');
+          walk(node[i]);
+          trail.pop();
+        }
         stack.pop();
         return;
       }
 
       const keys = Object.keys(node);
+
       for (let i = 0; i < keys.length; i++) {
         const key = keys[i];
-        if (key.toLowerCase().indexOf('continuation') < 0) continue;
-        const found = tokenFrom(node[key]);
-        if (found !== null) tokens.push({ token: found.token, request: found.request, stack: stack.slice() });
+        const lower = key.toLowerCase();
+        const isCont = lower.indexOf('continuation') >= 0;
+        const isTok = lower.indexOf('token') >= 0 || lower.indexOf('nextpage') >= 0 || lower.indexOf('morepages') >= 0;
+        if (!isCont && !isTok) continue;
+
+        const value = node[key];
+        if (isCont) recordContinuationKey(key, value, node);
+        if (isTok) recordTokenKey(key, value);
       }
 
       const channel = channelEntry(node);
       if (channel !== null) {
         stacks.push(stack.slice());
+        diag.channelsSeen += 1;
+        if (diag.firstChannelPath === null) diag.firstChannelPath = trail.join('');
         if (seen[channel.channelId] !== true) {
           seen[channel.channelId] = true;
           if (channels.length < limit) channels.push(channel);
@@ -214,38 +261,47 @@ export async function extractSubscriptions(maxChannels, data = null, options = n
         return; // não descer dentro de um canal já reconhecido
       }
 
-      for (let i = 0; i < keys.length; i++) walk(node[keys[i]], stack);
+      for (let i = 0; i < keys.length; i++) {
+        trail.push('.' + keys[i]);
+        walk(node[keys[i]]);
+        trail.pop();
+      }
     }
 
-    walk(root, []);
-
-    if (tokens.length === 0) return { next: null };
+    walk(root);
+    stack = null;
+    trail = null;
 
     // A pontuação é a distância entre o token e o ancestral mais próximo que
     // ele tem em comum com um canal: 0 é "está no mesmo bloco". Sem canal
     // nenhum na varredura, vale o primeiro token.
-    let best = null;
-    let bestScore = Infinity;
-    for (let i = 0; i < tokens.length; i++) {
-      const info = tokens[i];
-      let score = stacks.length === 0 ? 0 : null;
-      for (let j = 0; j < stacks.length; j++) {
-        const stack = stacks[j];
-        let common = 0;
-        const max = Math.min(info.stack.length, stack.length);
-        while (common < max && info.stack[common] === stack[common]) common += 1;
-        if (common === 0) continue;
-        const candidate = info.stack.length - common;
-        if (score === null || candidate < score) score = candidate;
+    let next = null;
+    if (tokens.length > 0) {
+      let best = null;
+      let bestScore = Infinity;
+      for (let i = 0; i < tokens.length; i++) {
+        const info = tokens[i];
+        let score = stacks.length === 0 ? 0 : null;
+        for (let j = 0; j < stacks.length; j++) {
+          const stackOfChannel = stacks[j];
+          let common = 0;
+          const max = Math.min(info.stack.length, stackOfChannel.length);
+          while (common < max && info.stack[common] === stackOfChannel[common]) common += 1;
+          if (common === 0) continue;
+          const candidate = info.stack.length - common;
+          if (score === null || candidate < score) score = candidate;
+        }
+        if (score === null) continue;
+        if (score < bestScore) {
+          bestScore = score;
+          best = info;
+        }
       }
-      if (score === null) continue;
-      if (score < bestScore) {
-        bestScore = score;
-        best = info;
-      }
+      if (best === null) best = tokens[0];
+      next = { token: best.token, request: best.request };
     }
-    if (best === null) best = tokens[0];
-    return { next: { token: best.token, request: best.request } };
+
+    return { next, found: stacks.length, diag };
   }
 
   /* ----------------------------------------------------------- paginação */
@@ -318,9 +374,15 @@ export async function extractSubscriptions(maxChannels, data = null, options = n
   let hasMore = false;
   let stopReason = null;
 
+  /** O censo das varreduras — é o que denuncia a forma da página num próximo passo. */
+  const diagnostics = { snapshot: null, bootstrap: null, pages: [] };
+
   /** Segue as continuações até acabarem, um teto bater ou um pedido falhar. */
   async function follow(startNext) {
     let next = startNext;
+    // Se nenhuma página da corrente produzir canal, o token não valia nada — a
+    // corrente está morta, e "acabou" seria mentira.
+    let chainFound = 0;
     while (next !== null) {
       if (channels.length >= limit) {
         hasMore = true;
@@ -358,12 +420,21 @@ export async function extractSubscriptions(maxChannels, data = null, options = n
         stopReason = 'fetch-failed';
         return;
       }
-      next = scan(response.body).next;
+      const page = scan(response.body, 'pagina');
+      if (diagnostics.pages.length < 3) diagnostics.pages.push(page.diag);
+      chainFound += page.found;
+      next = page.next;
+    }
+    if (chainFound === 0) {
+      hasMore = true;
+      stopReason = 'stale-continuation';
+      return;
     }
     stopReason = 'complete';
   }
 
-  const first = scan(source);
+  const first = scan(source, 'retrato');
+  diagnostics.snapshot = first.diag;
 
   if (first.next !== null) {
     if (!canFetch) {
@@ -381,10 +452,17 @@ export async function extractSubscriptions(maxChannels, data = null, options = n
     const response = await post({ context, browseId: FE_CHANNELS_BROWSE_ID }, null);
     pages += 1;
     if (response.ok !== true) {
+      hasMore = true;
       stopReason = 'bootstrap-failed';
     } else {
-      const page = scan(response.body);
-      if (page.next === null) {
+      const page = scan(response.body, 'fecho');
+      diagnostics.bootstrap = page.diag;
+      if (page.next === null && page.found === 0) {
+        // Nem canal nem continuação na resposta: é uma forma que o leitor não
+        // conhece — não podemos jurar que a lista acabou.
+        hasMore = true;
+        stopReason = 'bootstrap-unrecognized';
+      } else if (page.next === null) {
         stopReason = 'complete';
       } else {
         await follow(page.next);
@@ -392,5 +470,5 @@ export async function extractSubscriptions(maxChannels, data = null, options = n
     }
   }
 
-  return { ok: true, reason: null, channels, hasMore, pages, stopReason };
+  return { ok: true, reason: null, channels, hasMore, pages, stopReason, diagnostics };
 }

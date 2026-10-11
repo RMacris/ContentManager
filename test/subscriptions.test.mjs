@@ -175,6 +175,9 @@ function fakeChrome() {
       getLastFocused: async () => ({ id: 1, state: 'normal', focused: true }),
       update: async () => ({ state: 'maximized' }),
     },
+    runtime: {
+      getManifest: () => ({ version: '1.7-teste' }),
+    },
   };
 
   globalThis.fetch = async (url, options) => {
@@ -237,6 +240,41 @@ process.stdout.write('a coleta das inscrições:\n');
     run && run.ok === true && run.channelCount === 2 && run.pages === 2,
     JSON.stringify(run),
   );
+}
+
+process.stdout.write('o censo estrutural fica legível no storage local:\n');
+{
+  const state = fakeChrome();
+  state.scriptResult = {
+    ok: true,
+    channels: CHANNELS,
+    hasMore: true,
+    pages: 1,
+    stopReason: 'stale-continuation',
+    diagnostics: {
+      snapshot: {
+        label: 'retrato',
+        top: ['contents', 'header'],
+        channelsSeen: 2,
+        firstChannelPath: '.contents.x.gridRenderer.items[0]',
+        continuationKeys: [],
+        tokenKeys: [{ k: 'nextPageToken', p: '.contents.x.pagination.nextPageToken', t: 'str(64) TOKEN…' }],
+      },
+      bootstrap: null,
+      pages: [],
+    },
+  };
+  await collectSubscriptions('manual');
+
+  const diag = state.local.lastSubscriptionsDiagnostics;
+  check(
+    'o censo do retrato ficou no storage',
+    diag && diag.diagnostics.snapshot.tokenKeys.length === 1,
+    JSON.stringify(diag && diag.diagnostics && diag.diagnostics.snapshot.tokenKeys),
+  );
+  check('com a versão da extensão', typeof (diag && diag.version) === 'string' && diag.version !== '', String(diag && diag.version));
+  check('com o desfecho da rodada', diag && diag.stopReason === 'stale-continuation' && diag.pages === 1);
+  check('e entregue normal mesmo com censo', state.fetchCalls.length === 1 && state.fetchCalls[0].url === BRIDGE_URL);
 }
 
 process.stdout.write('duas chamadas concorrentes compartilham a rodada:\n');

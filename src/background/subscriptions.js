@@ -22,6 +22,9 @@ const OWNED_TAB_KEY = 'ownedSubscriptionsTabId';
 
 const LAST_RUN_KEY = 'lastSubscriptionsRun';
 
+/** Onde o censo estrutural da página fica legível — a forma nova se mede aqui. */
+const DIAGNOSTICS_KEY = 'lastSubscriptionsDiagnostics';
+
 /** A coleta em andamento, quando há uma — o botão e um clique duplo compartilham a rodada. */
 let inFlight = null;
 
@@ -55,6 +58,24 @@ async function executeCollect(trigger) {
       extracted = payload;
     } catch (error) {
       failure = error;
+    }
+
+    // O censo estrutural da página — `chrome.storage.local` é legível sem
+    // navegador: quando a lista não anda e nada se declara parcial, é aqui que a
+    // forma nova do YouTube aparece para quem conserta.
+    if (extracted && extracted.diagnostics) {
+      await chrome.storage.local.set({
+        [DIAGNOSTICS_KEY]: {
+          at: startedAt,
+          trigger,
+          version: chrome.runtime.getManifest().version,
+          channelCount: extracted.channels.length,
+          pages: typeof extracted.pages === 'number' ? extracted.pages : null,
+          stopReason: extracted.stopReason ?? null,
+          hasMore: extracted.hasMore === true,
+          diagnostics: extracted.diagnostics,
+        },
+      });
     }
 
     const closing = await closeOwnedTab(tabId, OWNED_TAB_KEY);

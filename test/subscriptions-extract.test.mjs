@@ -383,6 +383,93 @@ process.stdout.write('sem continuação no retrato, o browseId confirma o fim:\n
   check('paginou até o fim', result.pages === 2 && result.stopReason === 'complete', `${result.pages}/${result.stopReason}`);
 }
 
+process.stdout.write('o fecho pelo browseId precisa reconhecer a grade:\n');
+{
+  // O retrato não traz continuação; o fecho pergunta a grade pelo browseId. Se a
+  // resposta não tem NEM canal NEM token, não podemos jurar que a lista acabou —
+  // é a página em uma forma que o leitor não conhece, não o fim.
+  const data = pageWith([{ channelRenderer: channelRenderer(FIRESHIP) }]);
+  const fetchImpl = fakeFetch({ FEchannels: { responseContext: {}, trackingParams: 'x' } });
+  const result = await extractSubscriptions(1000, data, { ytcfg: fakeYtCfg(), fetch: fetchImpl });
+
+  check('resposta vazia não jura fim', result.hasMore === true, String(result.hasMore));
+  check('declara a forma não reconhecida', result.stopReason === 'bootstrap-unrecognized', String(result.stopReason));
+  check('ficou com o canal do retrato', result.channels.length === 1, String(result.channels.length));
+}
+
+process.stdout.write('o fecho que falha também não jura fim:\n');
+{
+  const data = pageWith([{ channelRenderer: channelRenderer(FIRESHIP) }]);
+  const fetchImpl = fakeFetch({ FEchannels: new Error('sem rede') });
+  const result = await extractSubscriptions(1000, data, { ytcfg: fakeYtCfg(), fetch: fetchImpl });
+
+  check('falha do fecho declara parcial', result.hasMore === true && result.stopReason === 'bootstrap-failed', String(result.stopReason));
+  check('ficou com o canal do retrato', result.channels.length === 1, String(result.channels.length));
+}
+
+process.stdout.write('o diagnóstico denuncia a forma da página:\n');
+{
+  const data = pageWith([{ channelRenderer: channelRenderer(FIRESHIP) }], { continuation: true, token: 'TOKEN_PAGINA_1' });
+  const fetchImpl = fakeFetch({ TOKEN_PAGINA_1: continuationResponse([{ channelRenderer: channelRenderer(OUTRA) }]) });
+  const result = await extractSubscriptions(1000, data, { ytcfg: fakeYtCfg(), fetch: fetchImpl });
+  const snapshot = result.diagnostics && result.diagnostics.snapshot;
+
+  check('diagnóstico do retrato presente', snapshot !== null && snapshot !== undefined, JSON.stringify(result.diagnostics ?? null).slice(0, 80));
+  check(
+    'diz onde mora o primeiro canal',
+    snapshot !== undefined && String(snapshot.firstChannelPath).includes('gridRenderer.items'),
+    snapshot ? String(snapshot.firstChannelPath) : '—',
+  );
+  check(
+    'lista a chave de continuação vista',
+    snapshot !== undefined && snapshot.continuationKeys.some((entry) => entry.k === 'continuationItemRenderer'),
+    snapshot ? JSON.stringify(snapshot.continuationKeys.map((entry) => entry.k)) : '—',
+  );
+  check('conta os canais vistos no retrato', snapshot !== undefined && snapshot.channelsSeen === 1, snapshot ? String(snapshot.channelsSeen) : '—');
+  check(
+    'o diagnóstico de cada página também vem',
+    result.diagnostics.pages.length === 1 && result.diagnostics.pages[0].channelsSeen === 1,
+    JSON.stringify(result.diagnostics.pages.map((p) => p.channelsSeen)),
+  );
+}
+
+process.stdout.write('o diagnóstico enxerga chaves com nome novo:\n');
+{
+  const data = pageWith([{ channelRenderer: channelRenderer(FIRESHIP) }]);
+  // A paginação mudou de nome: o diagnóstico tem de mostrar a chave mesmo sem o
+  // leitor reconhecê-la — é assim que a forma nova chega até quem conserta.
+  data.contents.twoColumnBrowseResultsRenderer.tabs[0].tabRenderer.content.sectionListRenderer.contents[0].itemSectionRenderer.contents.push({
+    pagination: { nextPageToken: 'TOKEN_QUE_NAO_SE_PARECE_COM_CONTINUACAO_CLASSICA_123456' },
+  });
+  const result = await extractSubscriptions(1000, data, { ytcfg: fakeYtCfg(), fetch: fakeFetch({}) });
+  const snapshot = result.diagnostics.snapshot;
+
+  check(
+    'a chave nova aparece no censo de tokens',
+    snapshot.tokenKeys.some((entry) => entry.k === 'nextPageToken'),
+    JSON.stringify(snapshot.tokenKeys.map((entry) => entry.k)),
+  );
+  check(
+    'e o caminho dela vai junto',
+    snapshot.tokenKeys.some((entry) => entry.p.includes('pagination.nextPageToken')),
+    JSON.stringify(snapshot.tokenKeys.map((entry) => entry.p)),
+  );
+}
+
+process.stdout.write('uma continuação que vem vazia de cara não jura fim:\n');
+{
+  // O token do retrato devolve append sem itens e sem próximo token. Se a
+  // primeira página da corrente já vem vazia, nada prova o mecanismo — pode ser
+  // token podre, não fim de lista.
+  const data = pageWith([{ channelRenderer: channelRenderer(FIRESHIP) }], { continuation: true, token: 'TOKEN_PAGINA_1' });
+  const fetchImpl = fakeFetch({ TOKEN_PAGINA_1: continuationResponse([]) });
+  const result = await extractSubscriptions(1000, data, { ytcfg: fakeYtCfg(), fetch: fetchImpl });
+
+  check('primeira página vazia declara parcial', result.hasMore === true, String(result.hasMore));
+  check('e nomeia a corrente morta', result.stopReason === 'stale-continuation', String(result.stopReason));
+  check('ficou com o canal do retrato', result.channels.length === 1, String(result.channels.length));
+}
+
 process.stdout.write('a busca usa o endpoint de busca:\n');
 {
   const data = pageWith([{ channelRenderer: channelRenderer(FIRESHIP) }], {
