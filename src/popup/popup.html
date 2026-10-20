@@ -39,6 +39,7 @@
     button:hover { background-color: #45a049; }
     button.secondary { background-color: #607D8B; }
     button.secondary:hover { background-color: #546E7A; }
+    button:disabled { background-color: #9e9e9e; cursor: not-allowed; }
     ul { list-style-type: none; padding: 0; margin: 6px 0; }
     li {
       background: #fff;
@@ -111,6 +112,7 @@
 
   <button id="saveSettings" class="secondary">Salvar configurações</button>
   <button id="collectNow">Colher agora</button>
+  <button id="flushNow" class="secondary" disabled>Enviar pendentes agora</button>
   <div id="collectMessage" class="message"></div>
 
   <h2>Inscrições</h2>
