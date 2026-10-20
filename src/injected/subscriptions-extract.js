@@ -52,6 +52,10 @@ export async function extractSubscriptions(maxChannels, data = null, options = n
   const FETCH_TIMEOUT_MS = 12000;
   const TOTAL_BUDGET_MS = 90000;
   const MAX_PAGES = 60;
+  /** Tetos do censo: cada tentativa guarda só um resumo pequeno e serializável. */
+  const MAX_ATTEMPTS = 3;
+  const MAX_VALUE_TOKENS = 30;
+  const MAX_RENDERER_KEYS = 10;
 
   /** O browseId da própria página de inscrições — a checagem de "acabou?". */
   const FE_CHANNELS_BROWSE_ID = 'FEchannels';
@@ -181,13 +185,22 @@ export async function extractSubscriptions(maxChannels, data = null, options = n
    * canais entram em `channels`, com dedupe por id e o teto; devolve `next`, a
    * continuação **mais próxima dos canais** — token de outra seção (guia ou
    * chips de ordenação) fica de fora quando há canal para comparar — e `diag`,
-   * o censo estrutural do que foi visto: onde mora o primeiro canal e toda chave
-   * com "continuation", "token", "nextPage" ou "morePages" no caminho. É o que
-   * denuncia uma forma nova da página em vez de deixar o leitor jurar fim.
+   * o censo estrutural do que foi visto: onde mora o primeiro canal, toda chave
+   * com "continuation", "token", "nextPage" ou "morePages" no caminho e toda
+   * string com a cara de token de continuação (`4qmF…`), mesmo sob uma chave de
+   * nome qualquer. É o que denuncia uma forma nova da página em vez de deixar o
+   * leitor jurar fim.
+   *
+   * As candidatas achadas **pelo valor** são só diagnóstico: elas recebem a
+   * mesma pontuação do seletor e a marca de quem teria vencido, mas a lista que
+   * escolhe `next` continua sendo apenas a das candidatas por nome — a seleção
+   * desta rodada não muda.
    */
   function scan(root, label) {
     const tokens = [];
     const stacks = [];
+    /** Candidatas por valor: `{ token, request, stack }` — nunca alimentam `next`. */
+    const valueCandidates = [];
     const diag = {
       label,
       top: root !== null && typeof root === 'object' ? Object.keys(root).slice(0, 16) : [],
@@ -195,7 +208,28 @@ export async function extractSubscriptions(maxChannels, data = null, options = n
       firstChannelPath: null,
       continuationKeys: [],
       tokenKeys: [],
+      valueTokens: [],
+      rendererKeys: [],
     };
+
+    /** Os tokens de continuação do YouTube começam todos por `4qmF`; a chave que os guarda, não. */
+    const CONTINUATION_TOKEN_VALUE = /^4qmF[A-Za-z0-9_-]{16,}$/;
+
+    /**
+     * Guarda uma string com cara de token de continuação. O caminho é o do
+     * valor (`…gridRenderer.params`), que é o que denuncia o token escondido; a
+     * candidata fica numa lista à parte, para a pontuação do seletor.
+     */
+    function recordValueToken(value) {
+      if (diag.valueTokens.length >= MAX_VALUE_TOKENS) return;
+      const entry = {
+        p: trail.join(''),
+        len: value.length,
+        t: value.slice(0, 32),
+      };
+      diag.valueTokens.push(entry);
+      valueCandidates.push({ token: value, request: null, stack: stack.slice(), entry });
+    }
 
     function recordContinuationKey(key, value, node) {
       if (diag.continuationKeys.length < 30) {
@@ -222,6 +256,12 @@ export async function extractSubscriptions(maxChannels, data = null, options = n
     let trail = [];
 
     function walk(node) {
+      // O token pode estar em qualquer string — valor de objeto ou item de
+      // array. O caminho que vale é o do valor, não o do nome da chave.
+      if (typeof node === 'string') {
+        if (CONTINUATION_TOKEN_VALUE.test(node)) recordValueToken(node);
+        return;
+      }
       if (node === null || typeof node !== 'object') return;
 
       if (Array.isArray(node)) {
@@ -236,6 +276,14 @@ export async function extractSubscriptions(maxChannels, data = null, options = n
       }
 
       const keys = Object.keys(node);
+
+      // A forma da resposta: nomes de renderer/view model vistos, sem repetir.
+      for (let i = 0; i < keys.length && diag.rendererKeys.length < MAX_RENDERER_KEYS; i++) {
+        const name = keys[i];
+        if (/(Renderer|ViewModel)$/.test(name) && diag.rendererKeys.indexOf(name) < 0) {
+          diag.rendererKeys.push(name);
+        }
+      }
 
       for (let i = 0; i < keys.length; i++) {
         const key = keys[i];
@@ -272,25 +320,33 @@ export async function extractSubscriptions(maxChannels, data = null, options = n
     stack = null;
     trail = null;
 
+    /** A distância entre a pilha do token e o ancestral que ele divide com o canal mais próximo. */
+    function distanceScore(tokenStack) {
+      if (stacks.length === 0) return 0;
+      let score = null;
+      for (let j = 0; j < stacks.length; j++) {
+        const stackOfChannel = stacks[j];
+        let common = 0;
+        const max = Math.min(tokenStack.length, stackOfChannel.length);
+        while (common < max && tokenStack[common] === stackOfChannel[common]) common += 1;
+        if (common === 0) continue;
+        const candidate = tokenStack.length - common;
+        if (score === null || candidate < score) score = candidate;
+      }
+      return score;
+    }
+
     // A pontuação é a distância entre o token e o ancestral mais próximo que
     // ele tem em comum com um canal: 0 é "está no mesmo bloco". Sem canal
-    // nenhum na varredura, vale o primeiro token.
+    // nenhum na varredura, vale o primeiro token. A escolha continua sendo só
+    // entre as candidatas por nome — o censo v2 não mexe nesta fila.
     let next = null;
+    let best = null;
+    let bestScore = Infinity;
     if (tokens.length > 0) {
-      let best = null;
-      let bestScore = Infinity;
       for (let i = 0; i < tokens.length; i++) {
         const info = tokens[i];
-        let score = stacks.length === 0 ? 0 : null;
-        for (let j = 0; j < stacks.length; j++) {
-          const stackOfChannel = stacks[j];
-          let common = 0;
-          const max = Math.min(info.stack.length, stackOfChannel.length);
-          while (common < max && info.stack[common] === stackOfChannel[common]) common += 1;
-          if (common === 0) continue;
-          const candidate = info.stack.length - common;
-          if (score === null || candidate < score) score = candidate;
-        }
+        const score = distanceScore(info.stack);
         if (score === null) continue;
         if (score < bestScore) {
           bestScore = score;
@@ -299,6 +355,41 @@ export async function extractSubscriptions(maxChannels, data = null, options = n
       }
       if (best === null) best = tokens[0];
       next = { token: best.token, request: best.request };
+    }
+
+    // O censo das candidatas achadas pelo valor: a conta do seletor, mas sem
+    // entrar na escolha. `wouldWin` responde se a candidata teria vencido o
+    // token seguido — é a pergunta que a próxima rodada logada precisa responder.
+    let valueWinner = null;
+    let winningScore = bestScore;
+    if (tokens.length === 0) {
+      let valueBest = null;
+      let valueBestScore = Infinity;
+      for (let i = 0; i < valueCandidates.length; i++) {
+        const info = valueCandidates[i];
+        const score = distanceScore(info.stack);
+        info.entry.score = score;
+        if (score !== null && score < valueBestScore) {
+          valueBestScore = score;
+          valueBest = info;
+        }
+      }
+      // Sem nenhuma pontuada, o seletor cai na primeira da fila — o mesmo
+      // desempate que valeria se as candidatas por valor entrassem na lista.
+      valueWinner = valueBest !== null ? valueBest : valueCandidates.length > 0 ? valueCandidates[0] : null;
+    } else {
+      for (let i = 0; i < valueCandidates.length; i++) {
+        const info = valueCandidates[i];
+        const score = distanceScore(info.stack);
+        info.entry.score = score;
+        if (score !== null && score < winningScore) {
+          winningScore = score;
+          valueWinner = info;
+        }
+      }
+    }
+    for (let i = 0; i < valueCandidates.length; i++) {
+      valueCandidates[i].entry.wouldWin = valueCandidates[i] === valueWinner;
     }
 
     return { next, found: stacks.length, diag };
@@ -359,7 +450,11 @@ export async function extractSubscriptions(maxChannels, data = null, options = n
         ...(controller !== null ? { signal: controller.signal } : {}),
       });
       if (!response || response.ok !== true) return { ok: false, reason: 'fetch-failed', status: response ? response.status : null };
-      return { ok: true, body: await response.json() };
+      return {
+        ok: true,
+        body: await response.json(),
+        status: typeof response.status === 'number' ? response.status : null,
+      };
     } catch (error) {
       return { ok: false, reason: 'fetch-failed' };
     } finally {
@@ -375,7 +470,36 @@ export async function extractSubscriptions(maxChannels, data = null, options = n
   let stopReason = null;
 
   /** O censo das varreduras — é o que denuncia a forma da página num próximo passo. */
-  const diagnostics = { snapshot: null, bootstrap: null, pages: [] };
+  const diagnostics = { snapshot: null, bootstrap: null, pages: [], attempts: [] };
+
+  /** Os 12 primeiros nomes do topo da resposta — a forma bruta que voltou. */
+  function topKeysOf(body) {
+    return body !== null && typeof body === 'object' && !Array.isArray(body) ? Object.keys(body).slice(0, 12) : [];
+  }
+
+  function hasKey(body, key) {
+    return body !== null && typeof body === 'object' && Object.prototype.hasOwnProperty.call(body, key);
+  }
+
+  /**
+   * O censo de cada tentativa: o token que foi seguido e a forma exata do que
+   * ele devolveu, lado a lado. Sem isto, "token errado" e "resposta em forma
+   * nova" ficam indistinguíveis no storage.
+   */
+  function attemptOf(nextToken, response) {
+    return {
+      tokenPrefix: nextToken.token.slice(0, 32),
+      tokenLength: nextToken.token.length,
+      request: nextToken.request ?? null,
+      status: typeof response.status === 'number' ? response.status : null,
+      top: [],
+      channelsSeen: 0,
+      hasActions: false,
+      hasEndpoints: false,
+      hasContinuationContents: false,
+      rendererKeys: [],
+    };
+  }
 
   /** Segue as continuações até acabarem, um teto bater ou um pedido falhar. */
   async function follow(startNext) {
@@ -408,6 +532,8 @@ export async function extractSubscriptions(maxChannels, data = null, options = n
 
       const response = await post({ context, continuation: next.token }, next.request);
       pages += 1;
+      const attempt = attemptOf(next, response);
+      if (diagnostics.attempts.length < MAX_ATTEMPTS) diagnostics.attempts.push(attempt);
       if (response.ok !== true) {
         if (response.status === 400) {
           // O YouTube recusa o token final quando a coleção acaba — medido: a
@@ -421,6 +547,12 @@ export async function extractSubscriptions(maxChannels, data = null, options = n
         return;
       }
       const page = scan(response.body, 'pagina');
+      attempt.top = topKeysOf(response.body);
+      attempt.channelsSeen = page.diag.channelsSeen;
+      attempt.hasActions = hasKey(response.body, 'onResponseReceivedActions');
+      attempt.hasEndpoints = hasKey(response.body, 'onResponseReceivedEndpoints');
+      attempt.hasContinuationContents = hasKey(response.body, 'continuationContents');
+      attempt.rendererKeys = page.diag.rendererKeys.slice(0, MAX_RENDERER_KEYS);
       if (diagnostics.pages.length < 3) diagnostics.pages.push(page.diag);
       chainFound += page.found;
       next = page.next;
