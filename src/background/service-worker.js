@@ -13,7 +13,6 @@
 import { addBlockRule, initializeRules, removeBlockRule } from './blocking.js';
 import { flushQueue, pingBridge, readDelivery } from './bridge-client.js';
 import { collectNow, readLastRun } from './collector.js';
-import { probeFeedHtml } from './feed-probe.js';
 import { ALARM_NAME, getSettings, rescheduleAlarm, RETRY_ALARM_NAME, saveSettings } from './settings.js';
 import { collectSubscriptions, readLastSubscriptionsRun } from './subscriptions.js';
 
@@ -21,8 +20,6 @@ chrome.runtime.onInstalled.addListener(() => {
   void (async () => {
     await initializeRules();
     await rescheduleAlarm();
-    // Sonda temporária: mede a rota sem aba (HTML buscado com a sessão).
-    await probeFeedHtml();
   })();
 });
 

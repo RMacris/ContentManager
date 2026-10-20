@@ -24,13 +24,6 @@ export const DEFAULT_SETTINGS = {
    * protege contra uma página patológica.
    */
   maxSubscriptions: 1000,
-  /**
-   * Maximizar a janela antes de colher (com rolagem de três telas como reserva).
-   * Desligado por padrão: a coleta lê o JSON da página, não a tela, e maximizar
-   * uma janela de fundo mexe no que o usuário está fazendo — um jogo em tela
-   * cheia, por exemplo. Ligar de novo só custa uma edição aqui.
-   */
-  maximizeBeforeCollect: false,
 };
 
 export const ALARM_NAME = 'yti-collect';

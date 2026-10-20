@@ -9,7 +9,7 @@
  * O payload abaixo reproduz a estrutura verbatim capturada na inspeção ao vivo
  * registrada no ticket 04 do mapa (build youtube.desktop.web_20261002_10_RC00).
  */
-import { extractFeedCards, parseInitialDataFromHtml, scrollThreeViewports } from '../src/injected/feed-extract.js';
+import { extractFeedCards, parseInitialDataFromHtml } from '../src/injected/feed-extract.js';
 
 let failures = 0;
 function check(label, condition, detail = '') {
@@ -217,16 +217,6 @@ check(
   JSON.stringify(trickyParsed),
 );
 check('HTML sem o marcador devolve null', parseInitialDataFromHtml('<html>nada</html>') === null);
-
-process.stdout.write('rolagem de reserva:\n');
-globalThis.window.innerHeight = 800;
-let scrolled = 0;
-globalThis.window.scrollBy = (_x, y) => {
-  scrolled += y;
-};
-const scroll = scrollThreeViewports();
-check('rola três telas', scrolled === 2400, String(scrolled));
-check('devolve o que rolou', scroll.scrolledPixels === 2400);
 
 process.stdout.write(failures === 0 ? '\nTUDO OK\n' : `\n${failures} FALHA(S)\n`);
 process.exitCode = failures === 0 ? 0 : 1;

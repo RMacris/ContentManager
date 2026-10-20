@@ -231,16 +231,3 @@ export function parseInitialDataFromHtml(html) {
   }
   return null;
 }
-
-/**
- * Reserva quando não dá para maximizar a janela: rola três telas inteiras.
- *
- * Nota honesta: com a coleta lendo o JSON, isto **não traz card novo** — foi
- * medido no ticket 04 (30 cards ocupam ~4,3 telas, então três rolagens não
- * chegam a carregar mais nada). Fica aqui porque foi pedido, e é inofensivo.
- */
-export function scrollThreeViewports() {
-  const height = window.innerHeight || 800;
-  for (let i = 0; i < 3; i++) window.scrollBy(0, height);
-  return { scrolledPixels: height * 3, innerHeight: height };
-}
