@@ -110,8 +110,6 @@ async function loadStatus() {
       if (!run.ok) lines.push(`motivo: ${deliveryDetail(run.delivery)}`);
     } else if (run.ok) {
       lines.push(`última colheita: ${when} (${trigger}) — ${run.cardCount} cards, ${run.delivery}`);
-      if (run.reusedTab) lines.push('reaproveitou e fechou a aba deixada pela colheita anterior');
-      if (run.maximized === false) lines.push(`não maximizou (${run.maximizeReason}) — rolou três telas`);
     } else {
       lines.push(`última colheita: ${when} (${trigger}) — falhou`);
       // `error` vem de uma falha na coleta; `delivery` vem de uma colheita que deu
@@ -126,7 +124,6 @@ async function loadStatus() {
         lines.push(`(a colheita funcionou: ${run.cardCount} cards — só a entrega falhou)`);
       }
     }
-    if (run.tabClosed === false) lines.push('atenção: a aba própria da colheita não pôde ser fechada');
   } else {
     lines.push('nenhuma colheita ainda');
   }

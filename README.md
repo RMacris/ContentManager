@@ -130,12 +130,15 @@ O que ela envia por card: thumbnail, título, data, nome do canal e avatar — e
 card mostra na tela, sem analisar o vídeo.
 
 **Como funciona o ciclo.** Um alarme interno (`chrome.alarms`) acorda a extensão no período
-configurado. Ela abre uma aba própria do YouTube **em segundo plano**, lê o `ytInitialData` da
-página, envia os cards por HTTP para a ponte e **fecha a aba** — sucesso ou falha. Aba que o
-usuário abriu não é selecionada, navegada nem fechada. Uma rodada que falha agenda uma
-retentativa curta (5 minutos, no máximo duas) em vez de esperar a hora cheia; sucesso encerra o
-episódio, e alarme e botão começam um novo. Com uma rodada em andamento, alarme e botão
-compartilham a mesma colheita em vez de abrir duas abas.
+configurado. Ela busca a home do YouTube **do próprio service worker**, com a sessão do usuário
+(`credentials: 'include'`), lê o `ytInitialData` do HTML e envia os cards por HTTP para a ponte —
+**sem abrir aba**. Nenhuma aba do usuário é selecionada, navegada nem fechada. Uma rodada que
+falha agenda uma retentativa curta (5 minutos, no máximo duas) em vez de esperar a hora cheia;
+sucesso encerra o episódio, e alarme e botão começam um novo. O que falhou decide o que repetir:
+falha de **colheita** repete a rodada; falha de **entrega** apenas esvazia a fila, sem colher de
+novo — re-colher empurraria mais um lote para uma fila cheia, expulsando o que ainda não chegou.
+Com uma rodada em andamento, alarme e botão compartilham a mesma colheita em vez de buscar duas
+vezes.
 
 **Por que a extensão inicia, e não o contrário.** O service worker do MV3 dorme quando ocioso, e
 nada fora da extensão consegue acordá-lo. Por isso a coleta roda no relógio dela. O efeito
@@ -143,7 +146,9 @@ colateral é bom: nenhum agente consegue mandar esta extensão fazer nada.
 
 **Por que lê o JSON e não o DOM.** Medido: no DOM, a maior parte das thumbnails fora da tela e
 praticamente todos os avatares vêm vazios por lazy loading, enquanto o payload da página tem
-todos. A leitura acontece no mundo MAIN, porque o `ytInitialData` vive no escopo da página.
+todos. Como a leitura é do JSON embutido no HTML (`ytInitialData`), ela não depende do mundo MAIN
+nem de a página ter renderizado — é o que permite a rota sem aba. O `PAGE_BUILD_LABEL` também vem
+do HTML, para a colheita continuar carimbada com a build do YouTube que a gerou.
 
 **Colher inscrições (manual).** O popup também tem o botão **"Colher inscrições"**: abre
 `youtube.com/feed/channels` numa aba própria **em segundo plano**, lê o `ytInitialData` no mundo
@@ -176,15 +181,15 @@ src/
 │   ├── service-worker.js  ponto de entrada: alarme e mensagens
 │   ├── blocking.js        bloqueio de URLs (declarativeNetRequest)
 │   ├── settings.js        preferências, token e agendamento do alarme
-│   ├── owned-tab.js       a aba própria: abrir/esperar/extrair/fechar (posse por finalidade)
-│   ├── youtube-tab.js     a finalidade "feed": extração dos cards
+│   ├── owned-tab.js       a aba própria das inscrições (abrir/esperar/extrair/fechar)
+│   ├── feed-fetch.js      a colheita do feed: fetch da home e extração, sem aba
 │   ├── collector.js       orquestra a colheita
 │   ├── subscriptions.js   orquestra a coleta das inscrições (manual, pelo popup)
 │   └── bridge-client.js   entrega por HTTP e fila de pendentes
 ├── content/
 │   └── block-guard.js     redireciona URLs bloqueadas (script clássico)
 ├── injected/
-│   ├── feed-extract.js    lê os cards no mundo MAIN da página
+│   ├── feed-extract.js    lê os cards do `ytInitialData` (worker e página)
 │   └── subscriptions-extract.js  lê as inscrições no mundo MAIN da página
 └── popup/                 interface: bloqueio e configuração da coleta
 ```
@@ -195,9 +200,17 @@ No popup: ligar/desligar a coleta, o período em minutos, a URL da ponte e o tok
 gerado pela ponte em `state/token.txt`, na pasta dela — ele fica em `chrome.storage.local`, não
 em `sync`, porque um segredo local não deve viajar entre máquinas. O painel do popup mostra a
 última rodada com o gatilho — **automática**, **manual** ou **retentativa** —, o que deixa
-visível que a coleta periódica está andando mesmo sem clique. A seção **Inscrições** tem linha de
-status própria: quantos canais a ponte **confirmou ter guardado** — a contagem que o painel
-desenha, tirada do dado, não o número que a extração declarou —, quando, e o motivo quando falhou.
+visível que a coleta periódica está andando mesmo sem clique.
+
+A entrega tem duas superfícies próprias: o **selo da ação** mostra quantos lotes esperam pela
+ponte (vazio em zero) e fica vermelho quando a última entrega falhou; o botão **Enviar pendentes
+agora** esvazia a fila **sem colher**, para quando a ponte volta. As chamadas à ponte têm prazo de
+5 s e o popup mostra o motivo em português — "sem conexão com a ponte", "token recusado", "a
+ponte não respondeu em 5 s" — nunca o `TypeError: Failed to fetch` cru.
+
+A seção **Inscrições** tem linha de status própria: quantos canais a ponte **confirmou ter
+guardado** — a contagem que o painel desenha, tirada do dado, não o número que a extração
+declarou —, quando, e o motivo quando falhou.
 
 ### Permissões
 
@@ -212,10 +225,14 @@ npm test
 ```
 
 Exercita o extrator contra um payload com o formato real capturado ao vivo — incluindo anúncio,
-Shorts, playlist, card sem avatar e o formato antigo —, o ciclo de vida da aba (aba do usuário
-intocada, aba própria fechada sempre, recuperação de uma colheita interrompida, espera da
-navegação antes de extrair) e a orquestração da colheita (retentativa agendada, com teto e
-encerrada por sucesso; chamadas concorrentes colhem uma vez só) com um dublê de `chrome`.
+Shorts, playlist, card sem avatar e o formato antigo —, a **rota sem aba** (fixture de HTML com
+`ytInitialData` e `PAGE_BUILD_LABEL`, marcador ausente, zero cards, HTTP não-ok, fetch rejeitado)
+e a orquestração da colheita (retentativa agendada, com teto e encerrada por sucesso; chamadas
+concorrentes colhem uma vez só) com dublês de `chrome` e um `fetch` que despacha por URL.
+
+A entrega tem suíte própria (`test/bridge-client.test.mjs`): teto da fila e descarte do lote mais
+velho, ordem de envio, parada no primeiro erro, timeout que aborta a chamada, e a classificação
+de 401, 400, rede e token ausente — cada uma com a frase em português que o popup mostra.
 
 A coleta das inscrições tem as próprias suítes: a **extração** contra um `channelRenderer` real
 (handle, avatar, contagem de inscritos, dedupe e ruído da página) e a **paginação** com `fetch` e
