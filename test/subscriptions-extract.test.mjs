@@ -456,6 +456,188 @@ process.stdout.write('o diagnóstico enxerga chaves com nome novo:\n');
   );
 }
 
+process.stdout.write('o token escondido sob outra chave entra no censo, mas não na fila:\n');
+{
+  // O token real do YouTube começa por `4qmF`. O decoy aqui é o token que o
+  // leitor conhece pelo nome — está na guia, longe da grade — e é ele que a
+  // seleção antiga segue. O token de verdade está sob `params`, na grade: o
+  // censo v2 tem de vê-lo, pontuá-lo e dizer que ele teria vencido, sem segui-lo.
+  const TOKEN_DECOY = '4qmFsgJ_DECOY_DO_GUIA_1234567890';
+  const TOKEN_REAL = '4qmFsgJ_REAL_EM_PARAMS_1234567890';
+  const data = pageWith([{ channelRenderer: channelRenderer(FIRESHIP) }]);
+  data.guide = {
+    entries: [
+      { guideEntryRenderer: { title: { simpleText: 'Inscrições' } } },
+      { continuationItemRenderer: continuationNode(TOKEN_DECOY) },
+    ],
+  };
+  const grid =
+    data.contents.twoColumnBrowseResultsRenderer.tabs[0].tabRenderer.content.sectionListRenderer.contents[0]
+      .itemSectionRenderer.contents[0].gridRenderer;
+  grid.params = TOKEN_REAL;
+
+  const fetchImpl = fakeFetch({
+    [TOKEN_DECOY]: continuationResponse([{ channelRenderer: channelRenderer(OUTRA) }]),
+  });
+  const result = await extractSubscriptions(1000, data, { ytcfg: fakeYtCfg(), fetch: fetchImpl });
+  const snapshot = result.diagnostics.snapshot;
+  const porValor = snapshot.valueTokens.find((entry) => entry.p.includes('gridRenderer.params'));
+  const decoyPorValor = snapshot.valueTokens.find((entry) => entry.t === TOKEN_DECOY.slice(0, 32));
+
+  check('o token sob params entrou no censo por valor', porValor !== undefined, JSON.stringify(snapshot.valueTokens));
+  check(
+    'com o caminho, o tamanho e os 32 primeiros caracteres',
+    porValor !== undefined &&
+      porValor.p.includes('gridRenderer.params') &&
+      porValor.len === TOKEN_REAL.length &&
+      porValor.t === TOKEN_REAL.slice(0, 32),
+    JSON.stringify(porValor ?? null),
+  );
+  check('com a pontuação do seletor', porValor !== undefined && porValor.score === 0, String(porValor && porValor.score));
+  check('e a marca de que teria vencido', porValor !== undefined && porValor.wouldWin === true);
+  check(
+    'o decoy também aparece pelo valor, sem pontuação',
+    decoyPorValor !== undefined && decoyPorValor.score === null && decoyPorValor.wouldWin === false,
+    JSON.stringify(decoyPorValor ?? null),
+  );
+  check(
+    'o token seguido continua sendo o decoy',
+    fetchImpl.calls.length === 1 && fetchImpl.calls[0].body.continuation === TOKEN_DECOY,
+    JSON.stringify(fetchImpl.calls.map((call) => call.body.continuation)),
+  );
+  check(
+    'a candidata por valor não foi seguida',
+    !fetchImpl.calls.some((call) => call.body.continuation === TOKEN_REAL),
+  );
+  check('a lista continua a mesma', result.channels.length === 2, String(result.channels.length));
+}
+
+process.stdout.write('cada tentativa registra a forma da resposta:\n');
+{
+  const data = pageWith([{ channelRenderer: channelRenderer(FIRESHIP) }], {
+    continuation: true,
+    token: 'TOKEN_PAGINA_1',
+  });
+  const fullResponse = continuationResponse([{ channelRenderer: channelRenderer(OUTRA) }], {
+    next: 'TOKEN_PAGINA_2',
+  });
+  fullResponse.onResponseReceivedEndpoints = [];
+  fullResponse.continuationContents = {};
+  const fetchImpl = fakeFetch({
+    TOKEN_PAGINA_1: fullResponse,
+    // A resposta medida no perfil logado: topo só com o contexto e o tracking.
+    TOKEN_PAGINA_2: { responseContext: {}, trackingParams: 'x' },
+  });
+  const result = await extractSubscriptions(1000, data, { ytcfg: fakeYtCfg(), fetch: fetchImpl });
+  const attempts = result.diagnostics.attempts;
+
+  check('uma tentativa por pedido', attempts.length === 2, String(attempts.length));
+  check(
+    'a primeira guarda o token, o tamanho e o tipo do pedido',
+    attempts[0].tokenPrefix === 'TOKEN_PAGINA_1' &&
+      attempts[0].tokenLength === 'TOKEN_PAGINA_1'.length &&
+      attempts[0].request === 'CONTINUATION_REQUEST_TYPE_BROWSE',
+    JSON.stringify(attempts[0]),
+  );
+  check(
+    'com status e o topo da resposta',
+    attempts[0].status === 200 &&
+      attempts[0].top.join('|') === 'onResponseReceivedActions|onResponseReceivedEndpoints|continuationContents',
+    JSON.stringify(attempts[0].top),
+  );
+  check(
+    'e as três formas que o leitor procura',
+    attempts[0].hasActions === true &&
+      attempts[0].hasEndpoints === true &&
+      attempts[0].hasContinuationContents === true,
+    JSON.stringify({
+      actions: attempts[0].hasActions,
+      endpoints: attempts[0].hasEndpoints,
+      continuationContents: attempts[0].hasContinuationContents,
+    }),
+  );
+  check('com os canais vistos na página', attempts[0].channelsSeen === 1, String(attempts[0].channelsSeen));
+  check(
+    'e os renderers que vieram nela',
+    attempts[0].rendererKeys.includes('channelRenderer') &&
+      attempts[0].rendererKeys.includes('continuationItemRenderer'),
+    JSON.stringify(attempts[0].rendererKeys),
+  );
+  check(
+    'a resposta vazia registra o topo mínimo medido',
+    attempts[1].status === 200 && attempts[1].top.join('|') === 'responseContext|trackingParams',
+    JSON.stringify(attempts[1].top),
+  );
+  check(
+    'sem canal nem ação nela',
+    attempts[1].channelsSeen === 0 &&
+      attempts[1].hasActions === false &&
+      attempts[1].hasEndpoints === false &&
+      attempts[1].hasContinuationContents === false,
+    JSON.stringify(attempts[1]),
+  );
+}
+
+process.stdout.write('o censo é limitado e serializável:\n');
+{
+  // 35 tokens com a cara de continuação: o censo guarda no máximo 30.
+  const data = pageWith([{ channelRenderer: channelRenderer(FIRESHIP) }]);
+  data.extra = [];
+  for (let i = 0; i < 35; i++) {
+    data.extra.push({ params: '4qmF' + String(i).padStart(20, '0') });
+  }
+  const semContinuacao = await extractSubscriptions(1000, data);
+  const snapshot = semContinuacao.diagnostics.snapshot;
+
+  check('no máximo 30 tokens por valor', snapshot.valueTokens.length === 30, String(snapshot.valueTokens.length));
+  check(
+    'e os primeiros são os que chegaram primeiro',
+    snapshot.valueTokens[0].t === '4qmF' + '0'.padStart(20, '0') &&
+      snapshot.valueTokens[0].p === '.extra[0].params',
+    JSON.stringify(snapshot.valueTokens[0]),
+  );
+  check('sem tentativa quando não houve pedido', semContinuacao.diagnostics.attempts.length === 0);
+
+  // Seis páginas de continuação: a paginação inteira acontece, mas o censo de
+  // tentativas para nas três primeiras.
+  const comPaginas = pageWith([{ channelRenderer: channelRenderer(FIRESHIP) }], {
+    continuation: true,
+    token: 'TOKEN_PAGINA_1',
+  });
+  const responses = {};
+  for (let i = 1; i <= 6; i++) {
+    responses[`TOKEN_PAGINA_${i}`] = continuationResponse(
+      [
+        {
+          channelRenderer: channelRenderer({
+            id: `UC${String(i).padStart(22, '0')}`,
+            title: `Canal ${i}`,
+            handle: `canal${i}`,
+            subscribers: '1 inscrito',
+          }),
+        },
+      ],
+      { next: i < 6 ? `TOKEN_PAGINA_${i + 1}` : null },
+    );
+  }
+  const fetchImpl = fakeFetch(responses);
+  const paginado = await extractSubscriptions(1000, comPaginas, { ytcfg: fakeYtCfg(), fetch: fetchImpl });
+
+  check('no máximo 3 tentativas', paginado.diagnostics.attempts.length === 3, String(paginado.diagnostics.attempts.length));
+  check(
+    'as três primeiras, na ordem em que foram feitas',
+    paginado.diagnostics.attempts.map((attempt) => attempt.tokenPrefix).join('|') ===
+      'TOKEN_PAGINA_1|TOKEN_PAGINA_2|TOKEN_PAGINA_3',
+    JSON.stringify(paginado.diagnostics.attempts.map((attempt) => attempt.tokenPrefix)),
+  );
+  check('a paginação em si não foi cortada', paginado.pages === 6 && paginado.stopReason === 'complete', `${paginado.pages}/${paginado.stopReason}`);
+  check(
+    'o censo inteiro serializa',
+    typeof JSON.stringify(paginado.diagnostics) === 'string' &&
+      JSON.parse(JSON.stringify(paginado.diagnostics)).attempts.length === 3,
+  );
+}
+
 process.stdout.write('uma continuação que vem vazia de cara não jura fim:\n');
 {
   // O token do retrato devolve append sem itens e sem próximo token. Se a
