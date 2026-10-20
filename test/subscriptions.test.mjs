@@ -48,7 +48,6 @@ function fakeChrome() {
       collectPeriodMinutes: 60,
       maxCards: 30,
       maxSubscriptions: 1000,
-      maximizeBeforeCollect: false,
     },
     local: { bridgeToken: 'token-de-teste' },
     session: {},

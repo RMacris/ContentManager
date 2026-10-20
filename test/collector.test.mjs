@@ -2,10 +2,12 @@
  * Teste do ciclo da colheita: retentativa e chamadas concorrentes.
  *
  * O `chrome` e o `fetch` são dublês: testa-se a coreografia, não o navegador
- * nem a ponte. A retentativa é observada pelo alarme que ela agenda — o efeito
- * que o relógio do navegador enxerga —, nunca por dentro do módulo.
+ * nem a ponte. A colheita busca a home (o fixture) e entrega por POST; a
+ * retentativa é observada pelo alarme que ela agenda — o efeito que o relógio
+ * do navegador enxerga —, nunca por dentro do módulo.
  */
 import { collectNow } from '../src/background/collector.js';
+import { FEED_HTML } from './fixtures/feed-page.mjs';
 
 let failures = 0;
 function check(label, condition, detail = '') {
@@ -13,10 +15,13 @@ function check(label, condition, detail = '') {
   process.stdout.write(`  ${condition ? 'ok  ' : 'FALHA'} ${label}${detail ? ` — ${detail}` : ''}\n`);
 }
 
-const USER_TAB_ID = 7;
 const RETRY_ALARM = 'yti-collect-retry';
+const FEED_URL = 'https://www.youtube.com/';
 
-/** Dublê do `chrome` — o mínimo que a colheita usa, mais o relógio de alarmes. */
+/**
+ * Dublê do `chrome` — só o storage e o relógio de alarmes que a colheita usa.
+ * Sem `tabs`/`scripting`/`windows`: a rota sem aba não encosta neles.
+ */
 function fakeChrome() {
   const state = {
     sync: {
@@ -24,18 +29,12 @@ function fakeChrome() {
       collectEnabled: true,
       collectPeriodMinutes: 60,
       maxCards: 30,
-      maximizeBeforeCollect: false,
     },
     local: { bridgeToken: 'token-de-teste' },
-    session: {},
-    tabs: new Map([
-      [USER_TAB_ID, { id: USER_TAB_ID, url: 'https://www.youtube.com/watch?v=abc', status: 'complete', windowId: 1 }],
-    ]),
-    nextTabId: 100,
-    calls: { create: [], update: [], remove: [], script: [] },
-    scriptResult: { ok: true, cards: [{ videoId: 'v1' }], buildLabel: 'label' },
-    scriptError: null,
-    scriptGate: null,
+    calls: { feed: 0, bridge: [] },
+    feedStatus: 200,
+    feedGate: null,
+    bridgeOk: true,
     alarms: { created: [], cleared: [] },
   };
 
@@ -59,21 +58,6 @@ function fakeChrome() {
           delete state.local[key];
         },
       },
-      session: {
-        get: async (defaults) => {
-          const out = {};
-          for (const key of Object.keys(defaults)) {
-            out[key] = key in state.session ? state.session[key] : defaults[key];
-          }
-          return out;
-        },
-        set: async (items) => {
-          Object.assign(state.session, items);
-        },
-        remove: async (key) => {
-          delete state.session[key];
-        },
-      },
     },
     alarms: {
       create: async (name, info) => {
@@ -84,49 +68,28 @@ function fakeChrome() {
         return true;
       },
     },
-    tabs: {
-      get: async (tabId) => {
-        const tab = state.tabs.get(tabId);
-        if (!tab) throw new Error(`No tab with id: ${tabId}`);
-        return tab;
-      },
-      create: async (props) => {
-        const id = state.nextTabId++;
-        state.calls.create.push({ id, ...props });
-        state.tabs.set(id, { id, url: props.url, status: 'complete', windowId: 1 });
-        return { id };
-      },
-      update: async (tabId, props) => {
-        state.calls.update.push({ tabId, ...props });
-        const tab = state.tabs.get(tabId);
-        if (!tab) throw new Error(`No tab with id: ${tabId}`);
-        Object.assign(tab, props);
-        return tab;
-      },
-      remove: async (tabId) => {
-        state.calls.remove.push(tabId);
-        state.tabs.delete(tabId);
-      },
-      onUpdated: { addListener: () => {}, removeListener: () => {} },
-    },
-    scripting: {
-      executeScript: async (options) => {
-        const tabId = options && options.target ? options.target.tabId : null;
-        const tab = state.tabs.get(tabId);
-        state.calls.script.push({ tabId, url: tab ? tab.url : null });
-        if (state.scriptGate) await state.scriptGate;
-        if (state.scriptError) throw new Error(state.scriptError);
-        return [{ result: state.scriptResult }];
-      },
-    },
-    windows: {
-      get: async (windowId) => ({ id: windowId, state: 'maximized', focused: true }),
-      getLastFocused: async () => ({ id: 1, state: 'maximized', focused: true }),
-      update: async () => ({ state: 'maximized' }),
-    },
   };
 
-  globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => ({ changed: true }) });
+  globalThis.fetch = async (url, options = {}) => {
+    if (url === FEED_URL) {
+      state.calls.feed += 1;
+      if (state.feedGate) await state.feedGate;
+      return {
+        ok: state.feedStatus >= 200 && state.feedStatus < 300,
+        status: state.feedStatus,
+        text: async () => FEED_HTML,
+        json: async () => ({}),
+      };
+    }
+
+    state.calls.bridge.push({ url, ...options });
+    return {
+      ok: state.bridgeOk,
+      status: state.bridgeOk ? 200 : 503,
+      json: async () => ({ changed: true }),
+      text: async () => 'ponte fora do ar',
+    };
+  };
 
   return state;
 }
@@ -134,21 +97,23 @@ function fakeChrome() {
 process.stdout.write('colheita que falha agenda retentativa:\n');
 {
   const state = fakeChrome();
-  state.scriptError = 'executeScript falhou';
+  state.feedStatus = 503;
   const summary = await collectNow('alarme');
 
   check('a colheita falhou', summary.ok === false, `ok=${summary.ok}`);
+  check('o motivo veio da busca', String(summary.error).includes('HTTP 503'), String(summary.error));
   check(
     'agendou a retentativa de 5 minutos',
     state.alarms.created.some((alarm) => alarm.name === RETRY_ALARM && alarm.delayInMinutes === 5),
     JSON.stringify(state.alarms.created),
   );
+  check('nada foi entregue', state.calls.bridge.length === 0, `entregou ${state.calls.bridge.length}`);
 }
 
 process.stdout.write('retentativa tem teto:\n');
 {
   const state = fakeChrome();
-  state.scriptError = 'executeScript falhou';
+  state.feedStatus = 503;
   await collectNow('alarme');
   await collectNow('retentativa');
   await collectNow('retentativa');
@@ -159,20 +124,49 @@ process.stdout.write('retentativa tem teto:\n');
 process.stdout.write('sucesso encerra o episódio de retentativa:\n');
 {
   const state = fakeChrome();
-  state.scriptError = 'executeScript falhou';
+  state.feedStatus = 503;
   await collectNow('alarme');
-  state.scriptError = null;
+  state.feedStatus = 200;
   const summary = await collectNow('alarme');
 
   check('a segunda colheita foi entregue', summary.ok === true && summary.cardCount === 1);
   check('limpou a retentativa pendente', state.alarms.cleared.includes(RETRY_ALARM));
+  check(
+    'o resumo não carrega campos de aba',
+    !('reusedTab' in summary) &&
+      !('tabClosed' in summary) &&
+      !('focus' in summary) &&
+      !('maximized' in summary) &&
+      !('maximizeReason' in summary),
+    JSON.stringify(Object.keys(summary)),
+  );
+}
+
+process.stdout.write('ponte fora do ar é rodada falha:\n');
+{
+  const state = fakeChrome();
+  state.bridgeOk = false;
+  const summary = await collectNow('alarme');
+
+  check('a rodada falhou', summary.ok === false, `ok=${summary.ok}`);
+  check('o card foi colhido mesmo assim', summary.cardCount === 1, `cardCount=${summary.cardCount}`);
+  check(
+    'o lote ficou na fila',
+    Array.isArray(state.local.pendingHarvests) && state.local.pendingHarvests.length === 1,
+    JSON.stringify(state.local.pendingHarvests ? state.local.pendingHarvests.length : null),
+  );
+  check(
+    'agendou a retentativa',
+    state.alarms.created.some((alarm) => alarm.name === RETRY_ALARM),
+    JSON.stringify(state.alarms.created),
+  );
 }
 
 process.stdout.write('chamadas concorrentes colhem uma vez só:\n');
 {
   const state = fakeChrome();
   let release = null;
-  state.scriptGate = new Promise((resolve) => {
+  state.feedGate = new Promise((resolve) => {
     release = resolve;
   });
 
@@ -181,7 +175,8 @@ process.stdout.write('chamadas concorrentes colhem uma vez só:\n');
   release();
   const [a, b] = await Promise.all([first, second]);
 
-  check('uma única aba foi aberta', state.calls.create.length === 1, `abriu ${state.calls.create.length}`);
+  check('buscou o feed uma vez só', state.calls.feed === 1, `buscou ${state.calls.feed}`);
+  check('entregou uma vez só', state.calls.bridge.length === 1, `entregou ${state.calls.bridge.length}`);
   check('as duas chamadas viram o mesmo resultado', a === b);
 }
 

@@ -1,25 +1,25 @@
 /**
- * A colheita: orquestra aba, extração e entrega.
+ * A colheita: orquestra a busca do feed, a extração e a entrega.
  *
  * Roda no relógio da própria extensão (o alarme), nunca por comando de fora —
  * o service worker do MV3 dorme, e nada externo consegue acordá-lo. É por isso
  * que a extensão inicia, em vez de ser comandada.
  */
 import { flushQueue, queueHarvest, recordDelivery, sendHarvest } from './bridge-client.js';
+import { collectFeed } from './feed-fetch.js';
 import {
   MAX_RETRIES,
   RETRY_ALARM_NAME,
   RETRY_COUNT_KEY,
   RETRY_DELAY_MINUTES,
 } from './settings.js';
-import { harvestInOwnTab } from './youtube-tab.js';
 
 const LAST_RUN_KEY = 'lastCollectRun';
 
 /**
  * A colheita em andamento, quando há uma. O worker é um só: se o alarme e o
- * botão dispararem juntos, os dois compartilham a mesma rodada em vez de abrir
- * duas abas e uma navegar por cima da outra.
+ * botão dispararem juntos, os dois compartilham a mesma rodada em vez de buscar
+ * o feed duas vezes e duplicar a entrega.
  */
 let inFlight = null;
 
@@ -48,17 +48,14 @@ async function executeCollect(trigger) {
 
   let outcome;
   try {
-    // A colheita inteira acontece numa aba própria, fechada ao fim: as abas do
-    // usuário não são selecionadas, navegadas nem fechadas.
-    const { cards, buildLabel, windowState, reused, tabClosed, focus } = await harvestInOwnTab();
+    // O feed vem do HTML da home, buscado daqui com a sessão do usuário:
+    // nenhuma aba é aberta, navegada ou fechada.
+    const { cards, buildLabel } = await collectFeed();
 
     if (cards.length === 0) {
       outcome = {
         ok: false,
         error: 'nenhum card encontrado — o layout do YouTube pode ter mudado',
-        reusedTab: reused,
-        tabClosed,
-        focus,
       };
     } else {
       const harvest = {
@@ -75,12 +72,7 @@ async function executeCollect(trigger) {
       outcome = {
         ok: delivery.ok,
         cardCount: cards.length,
-        reusedTab: reused,
-        tabClosed,
-        maximized: windowState.maximized,
-        maximizeReason: windowState.reason,
         delivery: delivery.ok ? 'entregue' : delivery.detail,
-        focus,
       };
     }
   } catch (error) {
@@ -94,7 +86,7 @@ async function executeCollect(trigger) {
 }
 
 /**
- * Retentativa: falha transitória (aba, carga ou ponte fora do ar) não espera a
+ * Retentativa: falha transitória (busca, carga ou ponte fora do ar) não espera a
  * hora cheia. Um sucesso encerra o episódio; cada falha agenda no máximo
  * `MAX_RETRIES` retentativas. O alarme e o botão começam episódio novo; a
  * própria retentativa apenas continua contando.
