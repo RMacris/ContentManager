@@ -366,7 +366,12 @@ process.stdout.write('ponte fora do ar não deixa aba para trás:\n');
   const summary = await collectSubscriptions('manual');
 
   check('a coleta falhou', summary.ok === false);
-  check('com o motivo da entrega', String(summary.delivery ?? '').includes('fetch failed'), String(summary.delivery));
+  check(
+    'com o motivo da entrega em português',
+    String(summary.delivery ?? '').includes('sem conexão com a ponte'),
+    String(summary.delivery),
+  );
+  check('sem o erro cru do fetch', !String(summary.delivery ?? '').includes('fetch failed'));
   check('a aba foi fechada mesmo assim', !state.tabs.has(state.calls.create[0].id));
   check('posse limpa', state.session.ownedSubscriptionsTabId === undefined);
 }

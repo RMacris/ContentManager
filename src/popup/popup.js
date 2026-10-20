@@ -12,6 +12,7 @@ function initialize() {
   document.getElementById('blockUrl').addEventListener('click', handleBlockUrl);
   document.getElementById('saveSettings').addEventListener('click', handleSaveSettings);
   document.getElementById('collectNow').addEventListener('click', handleCollectNow);
+  document.getElementById('flushNow').addEventListener('click', handleFlushNow);
   document.getElementById('collectSubscriptions').addEventListener('click', handleCollectSubscriptions);
   loadBlockedUrls();
   loadStatus();
@@ -88,22 +89,39 @@ async function loadStatus() {
   document.getElementById('bridgeToken').value = status.settings.bridgeToken;
 
   const lines = [];
-  lines.push(status.bridge.ok ? 'ponte: respondendo' : `ponte: sem resposta (${status.bridge.detail})`);
+  lines.push(status.bridge.ok ? 'ponte: respondendo' : `ponte: sem resposta — ${status.bridge.detail}`);
+
+  const delivery = status.delivery;
+  if (delivery.lastDelivery) {
+    const when = new Date(delivery.lastDelivery.at).toLocaleString();
+    lines.push(
+      delivery.lastDelivery.ok
+        ? `última entrega: entregue em ${when}`
+        : `última entrega: falhou em ${when} — ${deliveryDetail(delivery.lastDelivery.detail)}`,
+    );
+  }
 
   const run = status.lastRun;
   if (run) {
     const when = new Date(run.at).toLocaleString();
     const trigger = TRIGGER_LABELS[run.trigger] ?? run.trigger ?? '';
-    if (run.ok) {
+    if (run.deliveryRetry) {
+      lines.push(`última rodada: ${when} (${trigger}) — reenvio de pendentes ${run.ok ? 'entregue' : 'falhou'}`);
+      if (!run.ok) lines.push(`motivo: ${deliveryDetail(run.delivery)}`);
+    } else if (run.ok) {
       lines.push(`última colheita: ${when} (${trigger}) — ${run.cardCount} cards, ${run.delivery}`);
       if (run.reusedTab) lines.push('reaproveitou e fechou a aba deixada pela colheita anterior');
       if (run.maximized === false) lines.push(`não maximizou (${run.maximizeReason}) — rolou três telas`);
     } else {
       lines.push(`última colheita: ${when} (${trigger}) — falhou`);
       // `error` vem de uma falha na coleta; `delivery` vem de uma colheita que deu
-      // certo mas não chegou à ponte. Ler só `error` mostrava "motivo: undefined"
-      // exatamente no caso mais comum — token ainda não configurado.
-      lines.push(`motivo: ${run.error ?? run.delivery ?? 'sem detalhe'}`);
+      // certo mas não chegou à ponte. `harvestOk`/`deliveryOk` dizem qual dos dois
+      // foi, e o detalhe da entrega já chega em português do bridge-client.
+      const reason =
+        run.harvestOk === false
+          ? run.error ?? 'sem detalhe'
+          : deliveryDetail(run.delivery ?? run.error);
+      lines.push(`motivo: ${reason}`);
       if (typeof run.cardCount === 'number' && run.cardCount > 0) {
         lines.push(`(a colheita funcionou: ${run.cardCount} cards — só a entrega falhou)`);
       }
@@ -113,12 +131,23 @@ async function loadStatus() {
     lines.push('nenhuma colheita ainda');
   }
 
-  if (status.delivery.queueLength > 0) {
-    lines.push(`fila pendente: ${status.delivery.queueLength} lote(s)`);
-  }
+  lines.push(
+    delivery.queueLength > 0
+      ? `fila pendente: ${delivery.queueLength} lote(s) — use "Enviar pendentes agora"`
+      : 'fila: nenhum lote pendente',
+  );
+
+  document.getElementById('flushNow').disabled = delivery.queueLength === 0;
 
   setText('collectStatus', lines.join('\n'));
   renderSubscriptionsStatus(status.lastSubscriptionsRun);
+}
+
+/** O detalhe da entrega em português; resumos antigos guardaram o erro cru do `fetch`. */
+function deliveryDetail(detail) {
+  if (typeof detail !== 'string' || detail === '') return 'sem detalhe';
+  if (detail.includes('Failed to fetch')) return 'sem conexão com a ponte';
+  return detail;
 }
 
 /** A linha das inscrições: a última coleta, com o que ela trouxe ou por que falhou. */
@@ -170,7 +199,32 @@ async function handleCollectNow() {
   if (summary.ok) {
     displayMessage('collectMessage', `Colheita entregue: ${summary.cardCount} cards.`, false);
   } else {
-    displayMessage('collectMessage', `Falhou: ${summary.error || summary.delivery}`, true);
+    const reason =
+      summary.harvestOk === false
+        ? summary.error ?? 'sem detalhe'
+        : deliveryDetail(summary.delivery ?? summary.error);
+    displayMessage('collectMessage', `Falhou: ${reason}`, true);
+  }
+  loadStatus();
+}
+
+/** O reenvio manual: esvazia a fila pendente sem colher de novo. */
+async function handleFlushNow() {
+  const button = document.getElementById('flushNow');
+  button.disabled = true;
+  displayMessage('collectMessage', 'Enviando pendentes…', false);
+
+  const response = await chrome.runtime.sendMessage({ action: 'flushNow' });
+  const delivery = response && response.delivery;
+
+  if (!response) {
+    displayMessage('collectMessage', 'A extensão não respondeu ao reenvio.', true);
+  } else if (!delivery) {
+    displayMessage('collectMessage', 'Não havia lote pendente para enviar.', false);
+  } else if (delivery.ok) {
+    displayMessage('collectMessage', 'Pendentes entregues à ponte.', false);
+  } else {
+    displayMessage('collectMessage', `A entrega falhou: ${deliveryDetail(delivery.detail)}`, true);
   }
   loadStatus();
 }

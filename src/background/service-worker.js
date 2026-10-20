@@ -12,13 +12,21 @@
  */
 import { addBlockRule, initializeRules, removeBlockRule } from './blocking.js';
 import { flushQueue, pingBridge, readDelivery } from './bridge-client.js';
-import { collectNow, readLastRun } from './collector.js';
+import {
+  collectNow,
+  readLastRun,
+  readRetryMode,
+  RETRY_MODE_DELIVERY,
+  retryPending,
+} from './collector.js';
+import { flushPending, refreshBadge } from './delivery-health.js';
 import { ALARM_NAME, getSettings, rescheduleAlarm, RETRY_ALARM_NAME, saveSettings } from './settings.js';
 import { collectSubscriptions, readLastSubscriptionsRun } from './subscriptions.js';
 
 chrome.runtime.onInstalled.addListener(() => {
   void (async () => {
     await initializeRules();
+    await refreshBadge();
     await rescheduleAlarm();
   })();
 });
@@ -26,14 +34,22 @@ chrome.runtime.onInstalled.addListener(() => {
 chrome.runtime.onStartup.addListener(() => {
   void (async () => {
     await initializeRules();
+    await refreshBadge();
     await rescheduleAlarm();
   })();
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === ALARM_NAME) void collectNow('alarme');
-  else if (alarm.name === RETRY_ALARM_NAME) void collectNow('retentativa');
+  else if (alarm.name === RETRY_ALARM_NAME) void retryNow();
 });
+
+/** O alarme de retentativa obedece ao modo guardado: colher ou só reenviar. */
+async function retryNow() {
+  const mode = await readRetryMode();
+  if (mode === RETRY_MODE_DELIVERY) return retryPending();
+  return collectNow('retentativa');
+}
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   void handleMessage(message).then(sendResponse);
@@ -70,6 +86,11 @@ async function handleMessage(message) {
 
     case 'flushQueue':
       return { action: 'flushQueue', result: await flushQueue() };
+
+    case 'flushNow': {
+      const { delivery, queueLength } = await flushPending();
+      return { action: 'flushNow', delivery, queueLength };
+    }
 
     case 'pingBridge':
       return { action: 'pingBridge', bridge: await pingBridge() };

@@ -1,12 +1,12 @@
 /**
- * Teste do ciclo da colheita: retentativa e chamadas concorrentes.
+ * Teste do ciclo da colheita: retentativa, reenvio e chamadas concorrentes.
  *
  * O `chrome` e o `fetch` são dublês: testa-se a coreografia, não o navegador
  * nem a ponte. A colheita busca a home (o fixture) e entrega por POST; a
- * retentativa é observada pelo alarme que ela agenda — o efeito que o relógio
- * do navegador enxerga —, nunca por dentro do módulo.
+ * retentativa é observada pelo alarme e pelo modo que ela grava — o efeito que
+ * o alarme do navegador enxerga —, nunca por dentro do módulo.
  */
-import { collectNow } from '../src/background/collector.js';
+import { collectNow, retryPending } from '../src/background/collector.js';
 import { FEED_HTML } from './fixtures/feed-page.mjs';
 
 let failures = 0;
@@ -83,11 +83,12 @@ function fakeChrome() {
     }
 
     state.calls.bridge.push({ url, ...options });
+    if (!state.bridgeOk) throw new TypeError('Failed to fetch');
     return {
-      ok: state.bridgeOk,
-      status: state.bridgeOk ? 200 : 503,
+      ok: true,
+      status: 200,
       json: async () => ({ changed: true }),
-      text: async () => 'ponte fora do ar',
+      text: async () => 'entregue',
     };
   };
 
@@ -100,12 +101,21 @@ process.stdout.write('colheita que falha agenda retentativa:\n');
   state.feedStatus = 503;
   const summary = await collectNow('alarme');
 
-  check('a colheita falhou', summary.ok === false, `ok=${summary.ok}`);
+  check(
+    'a colheita falhou',
+    summary.ok === false && summary.harvestOk === false,
+    `ok=${summary.ok} harvestOk=${summary.harvestOk}`,
+  );
   check('o motivo veio da busca', String(summary.error).includes('HTTP 503'), String(summary.error));
   check(
     'agendou a retentativa de 5 minutos',
     state.alarms.created.some((alarm) => alarm.name === RETRY_ALARM && alarm.delayInMinutes === 5),
     JSON.stringify(state.alarms.created),
+  );
+  check(
+    'o modo guardado é repetir a colheita',
+    state.local.collectRetryMode === 'harvest',
+    String(state.local.collectRetryMode),
   );
   check('nada foi entregue', state.calls.bridge.length === 0, `entregou ${state.calls.bridge.length}`);
 }
@@ -131,6 +141,12 @@ process.stdout.write('sucesso encerra o episódio de retentativa:\n');
 
   check('a segunda colheita foi entregue', summary.ok === true && summary.cardCount === 1);
   check('limpou a retentativa pendente', state.alarms.cleared.includes(RETRY_ALARM));
+  check('limpou o modo guardado', !('collectRetryMode' in state.local), JSON.stringify(Object.keys(state.local)));
+  check(
+    'registrou a entrega boa',
+    state.local.lastDelivery && state.local.lastDelivery.ok === true,
+    JSON.stringify(state.local.lastDelivery),
+  );
   check(
     'o resumo não carrega campos de aba',
     !('reusedTab' in summary) &&
@@ -142,24 +158,63 @@ process.stdout.write('sucesso encerra o episódio de retentativa:\n');
   );
 }
 
-process.stdout.write('ponte fora do ar é rodada falha:\n');
+process.stdout.write('falha de entrega não colhe de novo e agenda só o reenvio:\n');
 {
   const state = fakeChrome();
   state.bridgeOk = false;
   const summary = await collectNow('alarme');
 
-  check('a rodada falhou', summary.ok === false, `ok=${summary.ok}`);
-  check('o card foi colhido mesmo assim', summary.cardCount === 1, `cardCount=${summary.cardCount}`);
   check(
-    'o lote ficou na fila',
+    'a colheita funcionou',
+    summary.harvestOk === true && summary.cardCount === 1,
+    JSON.stringify(summary),
+  );
+  check(
+    'a entrega falhou',
+    summary.ok === false && summary.deliveryOk === false && summary.deliveryKind === 'offline',
+    JSON.stringify(summary),
+  );
+  check('a frase é a de sem conexão, não o erro cru', summary.delivery === 'sem conexão com a ponte', summary.delivery);
+  check('buscou o feed uma vez só', state.calls.feed === 1, `buscou ${state.calls.feed}`);
+  check(
+    'guardou o lote na fila',
     Array.isArray(state.local.pendingHarvests) && state.local.pendingHarvests.length === 1,
-    JSON.stringify(state.local.pendingHarvests ? state.local.pendingHarvests.length : null),
+    `fila=${state.local.pendingHarvests ? state.local.pendingHarvests.length : null}`,
   );
   check(
     'agendou a retentativa',
     state.alarms.created.some((alarm) => alarm.name === RETRY_ALARM),
     JSON.stringify(state.alarms.created),
   );
+  check(
+    'o modo guardado é só reenviar',
+    state.local.collectRetryMode === 'delivery',
+    String(state.local.collectRetryMode),
+  );
+}
+
+process.stdout.write('reenvio entrega a fila sem colher e encerra o episódio:\n');
+{
+  const state = fakeChrome();
+  state.bridgeOk = false;
+  await collectNow('alarme');
+  state.bridgeOk = true;
+  const retry = await retryPending();
+
+  check('o reenvio não buscou o feed de novo', state.calls.feed === 1, `buscou ${state.calls.feed}`);
+  check(
+    'o reenvio entregou',
+    retry.ok === true && retry.deliveryOk === true && retry.deliveryRetry === true,
+    JSON.stringify(retry),
+  );
+  check('a fila esvaziou', state.local.pendingHarvests.length === 0, `fila=${state.local.pendingHarvests.length}`);
+  check(
+    'registrou a entrega boa',
+    state.local.lastDelivery && state.local.lastDelivery.ok === true,
+    JSON.stringify(state.local.lastDelivery),
+  );
+  check('limpou o modo guardado', !('collectRetryMode' in state.local), JSON.stringify(Object.keys(state.local)));
+  check('limpou o alarme pendente', state.alarms.cleared.includes(RETRY_ALARM));
 }
 
 process.stdout.write('chamadas concorrentes colhem uma vez só:\n');
