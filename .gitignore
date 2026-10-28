@@ -6,9 +6,6 @@ node_modules/
 # Hoje a extensão é JavaScript puro: o Chrome carrega o que está na pasta.
 dist/
 
-# Restos do teste de fumaça do extrator, se ele falhar no meio.
-.smoke-state/
-
 # Logs
 *.log
 
@@ -16,3 +13,4 @@ dist/
 Thumbs.db
 desktop.ini
 .idea/
+.serena/

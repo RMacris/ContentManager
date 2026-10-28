@@ -122,59 +122,7 @@ By understanding and using `.*`, you can effectively block a wide range of URLs 
 
 Let’s build a community-driven solution to break free from the grasp of big tech corporations.
 
-## Coleta do feed do YouTube
-
-Além do bloqueio, esta extensão colhe o **topo** do feed do YouTube e o envia para uma ponte
-local, que filtra o conteúdo com uma LLM rodando na própria máquina. A extensão **não** julga
-nada: ela só coleta e entrega.
-
-O que ela envia por card: thumbnail, título, data, nome do canal e avatar — exatamente o que o
-card mostra na tela, sem analisar o vídeo.
-
-**Como funciona o ciclo.** Um alarme interno (`chrome.alarms`) acorda a extensão no período
-configurado. Ela busca a home do YouTube **do próprio service worker**, com a sessão do usuário
-(`credentials: 'include'`), lê o `ytInitialData` do HTML e envia os cards por HTTP para a ponte —
-**sem abrir aba**. Nenhuma aba do usuário é selecionada, navegada nem fechada. Uma rodada que
-falha agenda uma retentativa curta (5 minutos, no máximo duas) em vez de esperar a hora cheia;
-sucesso encerra o episódio, e alarme e botão começam um novo. O que falhou decide o que repetir:
-falha de **colheita** repete a rodada; falha de **entrega** apenas esvazia a fila, sem colher de
-novo — re-colher empurraria mais um lote para uma fila cheia, expulsando o que ainda não chegou.
-Com uma rodada em andamento, alarme e botão compartilham a mesma colheita em vez de buscar duas
-vezes.
-
-**Por que a extensão inicia, e não o contrário.** O service worker do MV3 dorme quando ocioso, e
-nada fora da extensão consegue acordá-lo. Por isso a coleta roda no relógio dela. O efeito
-colateral é bom: nenhum agente consegue mandar esta extensão fazer nada.
-
-**Por que lê o JSON e não o DOM.** Medido: no DOM, a maior parte das thumbnails fora da tela e
-praticamente todos os avatares vêm vazios por lazy loading, enquanto o payload da página tem
-todos. Como a leitura é do JSON embutido no HTML (`ytInitialData`), ela não depende do mundo MAIN
-nem de a página ter renderizado — é o que permite a rota sem aba. O `PAGE_BUILD_LABEL` também vem
-do HTML, para a colheita continuar carimbada com a build do YouTube que a gerou.
-
-**Colher inscrições (manual).** O popup também tem o botão **"Colher inscrições"**: abre
-`youtube.com/feed/channels` numa aba própria **em segundo plano**, lê o `ytInitialData` no mundo
-MAIN (mesmo caminho JSON-first do feed), entrega por `POST /subscriptions` e fecha a aba —
-sucesso ou falha. A ponte grava o retrato em `state/subscriptions.json`, e é essa lista que o
-painel do harness usa para sugerir `@handles` ao editar os canais de confiança. Lista vazia é
-falha declarada (quase sempre é login/consentimento), nunca um vazio por cima de uma lista boa.
-
-A página só embute a **primeira leva** de inscrições no JSON; o resto chega por continuação — o
-mesmo pedido que o scroll da página dispara. A extensão pede a continuação diretamente (mundo
-MAIN, com a sessão e o `ytcfg` da página) e segue até o fim, com teto de canais, de páginas e de
-tempo. Se o retrato não trouxer continuação nenhuma, uma consulta final pelo `browseId` da página
-confirma se a lista acabou. A extração é tolerante à forma (a referência do `channelRenderer` foi
-medida num resultado de busca) e o popup só avisa "lista parcial" quando a coleta **parou antes do
-fim** — com o motivo em português e quantas continuações seguiu. Três situações não juram fim: a
-consulta de fecho que falha, a que devolve uma resposta sem grade reconhecível, e a continuação
-que não produz canal nenhum — corrente morta é forma desconhecida, não lista completa.
-
-O censo estrutural de cada varredura (onde mora o primeiro canal, e toda chave com
-`continuation`/`token`/`nextPage` no caminho) fica gravado em `chrome.storage.local` sob
-`lastSubscriptionsDiagnostics`, com a versão da extensão — é assim que a forma logada da página
-pode ser medida sem navegador, e é onde a próxima divergência de forma se denuncia sozinha.
-
-### Filtro de idade nas recomendações
+## Filtro de idade nas recomendações
 
 Um content script em `youtube.com` esconde o card de **recomendação** que é mais velho que 3 dias.
 A idade é a que o próprio YouTube escreve no card — "há 5 dias", "há 2 sem.", "1 week ago" —, então
@@ -204,61 +152,42 @@ aplica `display: none` com uma marca no card, nunca remove nó, nunca fala com a
 nada sobre os vídeos. Como o YouTube é uma SPA, a varredura acompanha nó novo, a navegação
 (`yt-navigate-finish`) e uma varredura periódica de 2 s, com piso de 500 ms entre uma e outra.
 
-### Estrutura
+## Estrutura
 
 ```
 manifest.json
 src/
-├── background/          service worker (módulos ES)
-│   ├── service-worker.js  ponto de entrada: alarme e mensagens
+├── background/            service worker (módulos ES)
+│   ├── service-worker.js  ponto de entrada: instalação e mensagens
 │   ├── blocking.js        bloqueio de URLs (declarativeNetRequest)
-│   ├── settings.js        preferências, token e agendamento do alarme
-│   ├── owned-tab.js       a aba própria das inscrições (abrir/esperar/extrair/fechar)
-│   ├── feed-fetch.js      a colheita do feed: fetch da home e extração, sem aba
-│   ├── collector.js       orquestra a colheita
-│   ├── subscriptions.js   orquestra a coleta das inscrições (manual, pelo popup)
-│   └── bridge-client.js   entrega por HTTP e fila de pendentes
+│   └── settings.js        as duas preferências do filtro
 ├── content/
 │   ├── block-guard.js     redireciona URLs bloqueadas (script clássico)
 │   ├── age-core.js        lê a idade do card e decide o limite (script clássico, sem DOM)
 │   └── age-filter.js      esconde/mostra os cards no site do YouTube
-├── injected/
-│   ├── feed-extract.js    lê os cards do `ytInitialData` (worker e página)
-│   └── subscriptions-extract.js  lê as inscrições no mundo MAIN da página
-└── popup/                 interface: bloqueio, filtro de idade e configuração da coleta
+└── popup/                 interface: bloqueio e interruptores do filtro
 ```
 
-### Configuração
+Nenhum módulo fala com a rede: a extensão não tem servidor, não tem token e não tem
+configuração de fora. O que ela sabe mora no `chrome.storage` do próprio perfil.
 
-No popup: ligar/desligar a coleta, o período em minutos, a URL da ponte e o token. O token é
-gerado pela ponte em `state/token.txt`, na pasta dela — ele fica em `chrome.storage.local`, não
-em `sync`, porque um segredo local não deve viajar entre máquinas. O painel do popup mostra a
-última rodada com o gatilho — **automática**, **manual** ou **retentativa** —, o que deixa
-visível que a coleta periódica está andando mesmo sem clique.
+## Configuração
 
-A entrega tem duas superfícies próprias: o **selo da ação** mostra quantos lotes esperam pela
-ponte (vazio em zero) e fica vermelho quando a última entrega falhou; o botão **Enviar pendentes
-agora** esvazia a fila **sem colher**, para quando a ponte volta. As chamadas à ponte têm prazo de
-5 s e o popup mostra o motivo em português — "sem conexão com a ponte", "token recusado", "a
-ponte não respondeu em 5 s" — nunca o `TypeError: Failed to fetch` cru.
+A seção **Filtro do feed** do popup tem duas caixas ligadas por padrão: **"Esconder vídeos com
+mais de 3 dias"** (`hideOldVideos`) e **"Esconder jogos e anúncios do feed"** (`hideGamesAndAds`).
+As duas moram em `chrome.storage.sync` e o content script escuta a mudança — por isso desligar não
+pede recarregar a página, e cada uma vale por si. Uma aba do YouTube já aberta antes de a extensão
+ser recarregada só passa a filtrar depois de um refresh.
 
-A seção **Inscrições** tem linha de status própria: quantos canais a ponte **confirmou ter
-guardado** — a contagem que o painel desenha, tirada do dado, não o número que a extração
-declarou —, quando, e o motivo quando falhou.
+## Permissões
 
-A seção **Filtro do feed** tem duas caixas ligadas por padrão: **"Esconder vídeos com mais de 3
-dias"** (`hideOldVideos`) e **"Esconder jogos e anúncios do feed"** (`hideGamesAndAds`). As duas
-moram em `chrome.storage.sync` e o content script escuta a mudança — por isso desligar não pede
-recarregar a página, e cada uma vale por si. Uma aba do YouTube já aberta antes de a extensão ser
-recarregada só passa a filtrar depois de um refresh.
+Apenas duas: `storage` (as listas e as preferências) e `declarativeNetRequest` (o bloqueio de
+URLs). A entrada `host_permissions` de `youtube.com` acompanha os content scripts do filtro. As
+permissões `webRequest`, `webNavigation`, `activeTab`, `declarativeNetRequestFeedback`, `scripting`
+e `alarms` que versões anteriores declaravam **não existem mais** — a coleta e o servidor local
+que precisavam delas saíram na 2.0.0.
 
-### Permissões
-
-Apenas quatro: `storage`, `declarativeNetRequest`, `scripting` e `alarms`. As permissões
-`webRequest`, `webNavigation`, `activeTab` e `declarativeNetRequestFeedback` que a versão anterior
-declarava **não eram usadas em lugar nenhum** do código e foram removidas.
-
-### Testes
+## Testes
 
 ```powershell
 npm test
@@ -269,33 +198,11 @@ texto — a `description` tem teto de **132** caracteres e um a mais faz o naveg
 inteiro, sem aviso na página —, a versão igual à do `package.json` e todo arquivo apontado pelo
 manifesto existindo. Foi assim que a 1.10.0 passou a não filtrar nada em silêncio.
 
-Exercita o extrator contra um payload com o formato real capturado ao vivo — incluindo anúncio,
-Shorts, playlist, card sem avatar e o formato antigo —, a **rota sem aba** (fixture de HTML com
-`ytInitialData` e `PAGE_BUILD_LABEL`, marcador ausente, zero cards, HTTP não-ok, fetch rejeitado)
-e a orquestração da colheita (retentativa agendada, com teto e encerrada por sucesso; chamadas
-concorrentes colhem uma vez só) com dublês de `chrome` e um `fetch` que despacha por URL.
-
-A entrega tem suíte própria (`test/bridge-client.test.mjs`): teto da fila e descarte do lote mais
-velho, ordem de envio, parada no primeiro erro, timeout que aborta a chamada, e a classificação
-de 401, 400, rede e token ausente — cada uma com a frase em português que o popup mostra.
-
-A coleta das inscrições tem as próprias suítes: a **extração** contra um `channelRenderer` real
-(handle, avatar, contagem de inscritos, dedupe e ruído da página) e a **paginação** com `fetch` e
-`ytcfg` dublês — a continuação seguida até o fim (forma clássica e a renomeada), o token de outra
-seção ignorado, o teto cortando sem gastar pedido, a falha de rede declarando parcial, o `400` do
-token final fechando a lista, e as três correntes que **não** juram fim (fecho falho, fecho sem
-grade reconhecível e continuação morta), mais o censo estrutural que sai em `diagnostics`; e a
-**coreografia** da aba própria (segundo plano, fechada ao fim, entrega com token, lista vazia e
-falha sem aba órfã, rodada reaproveitada depois de uma morte do worker, censo gravado no storage).
-
 A **idade dos cards** tem suíte própria (`test/age-core.test.mjs`): as formas que o YouTube escreve
 em pt e en — "há 5 h", "há 2 sem.", "há 1 mês", "há 13 anos", "1 day ago" —, a recusa das datas de
 ação ("Assistido há 5 dias" não é publicação), o que não é data ("N mil assistindo"), e o limite
 **estrito** de 3 dias: "há 3 dias" fica, "há 4 dias" some. O `age-core.js` não conhece DOM nem
-`chrome`, por isso roda num contexto `vm` do Node. O que esconde o card no DOM é conferido com uma
-página de fixture que reproduz a estrutura do feed — rich item, lockup, Mix, Shorts,
-`#metadata-line`, a prateleira de jogos com `/playables/` e o anúncio no feed com o selo
-"Patrocinado" —, com os dois interruptores do popup desfazendo e refazendo cada regra de cada vez.
+`chrome`, por isso roda num contexto `vm` do Node.
 
 ## Installation
 

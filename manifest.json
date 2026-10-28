@@ -1,17 +1,14 @@
 {
   "manifest_version": 3,
   "name": "Bloqueador de HTTP e Sites",
-  "version": "1.10.1",
-  "description": "Bloqueie sites indesejados, esconda vídeos antigos, jogos e anúncios no YouTube e colete feed e inscrições.",
+  "version": "2.0.0",
+  "description": "Bloqueie sites indesejados, esconda vídeos antigos, jogos e anúncios no YouTube.",
   "permissions": [
     "storage",
-    "declarativeNetRequest",
-    "scripting",
-    "alarms"
+    "declarativeNetRequest"
   ],
   "host_permissions": [
-    "https://www.youtube.com/*",
-    "http://127.0.0.1/*"
+    "https://www.youtube.com/*"
   ],
   "background": {
     "service_worker": "src/background/service-worker.js",

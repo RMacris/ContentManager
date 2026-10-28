@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>Bloqueador e Coletor</title>
+  <title>Bloqueador de URLs</title>
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -13,8 +13,7 @@
       box-sizing: border-box;
     }
     h1 { font-size: 17px; margin: 0 0 8px; }
-    h2 { font-size: 14px; margin: 18px 0 6px; color: #333; }
-    input[type="text"], input[type="number"], input[type="password"] {
+    input[type="text"] {
       width: 100%;
       padding: 8px;
       margin: 6px 0;
@@ -37,9 +36,6 @@
       transition: background-color 0.3s ease;
     }
     button:hover { background-color: #45a049; }
-    button.secondary { background-color: #607D8B; }
-    button.secondary:hover { background-color: #546E7A; }
-    button:disabled { background-color: #9e9e9e; cursor: not-allowed; }
     ul { list-style-type: none; padding: 0; margin: 6px 0; }
     li {
       background: #fff;
@@ -68,18 +64,6 @@
     }
     .message.error { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
     .message.ok { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
-    .status {
-      font-size: 11px;
-      color: #555;
-      background: #fff;
-      border: 1px solid #ddd;
-      border-radius: 4px;
-      padding: 8px;
-      margin: 6px 0;
-      line-height: 1.5;
-      white-space: pre-wrap;
-      word-break: break-word;
-    }
     hr { border: none; border-top: 1px solid #ddd; margin: 18px 0 0; }
     .hint { font-size: 11px; color: #777; margin: 2px 0 0; line-height: 1.4; }
   </style>
@@ -95,43 +79,13 @@
 
   <h1>Filtro do feed</h1>
   <label for="hideOldVideos">
-    <input type="checkbox" id="hideOldVideos"> Esconder vídeos com mais de 3 dias
+    <input type="checkbox" id="hideOldVideos" checked> Esconder vídeos com mais de 3 dias
   </label>
   <label for="hideGamesAndAds">
-    <input type="checkbox" id="hideGamesAndAds"> Esconder jogos e anúncios do feed
+    <input type="checkbox" id="hideGamesAndAds" checked> Esconder jogos e anúncios do feed
   </label>
   <p class="hint">Vídeos com 4 dias ou mais, jogos e anúncios somem da home, inscrições, buscas, canais e recomendações. Shorts, histórico e listas salvas não são afetados.</p>
   <div id="filterMessage" class="message"></div>
-
-  <hr>
-
-  <h1>Coleta do YouTube</h1>
-  <div id="collectStatus" class="status">carregando…</div>
-
-  <label for="collectEnabled">
-    <input type="checkbox" id="collectEnabled"> Colher periodicamente
-  </label>
-
-  <label for="collectPeriodMinutes">Período (minutos)</label>
-  <input type="number" id="collectPeriodMinutes" min="1" step="1">
-
-  <label for="bridgeUrl">URL da ponte</label>
-  <input type="text" id="bridgeUrl" placeholder="http://127.0.0.1:8791">
-
-  <label for="bridgeToken">Token da ponte</label>
-  <input type="password" id="bridgeToken" placeholder="cole o conteúdo de state/token.txt">
-  <p class="hint">O token fica em <code>state/token.txt</code>, na pasta da ponte.</p>
-
-  <button id="saveSettings" class="secondary">Salvar configurações</button>
-  <button id="collectNow">Colher agora</button>
-  <button id="flushNow" class="secondary" disabled>Enviar pendentes agora</button>
-  <div id="collectMessage" class="message"></div>
-
-  <h2>Inscrições</h2>
-  <div id="subscriptionsStatus" class="status">carregando…</div>
-  <button id="collectSubscriptions" class="secondary">Colher inscrições</button>
-  <p class="hint">Abre a página de inscrições numa aba em segundo plano, coleta todos os canais e entrega à ponte — é a lista que o painel usa para sugerir handles.</p>
-  <div id="subscriptionsMessage" class="message"></div>
 
   <script src="popup.js"></script>
 </body>
