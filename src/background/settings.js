@@ -21,6 +21,11 @@ export const DEFAULT_SETTINGS = {
    * ou mais). Vale só para a página; a colheita continua lendo o feed inteiro.
    */
   hideOldVideos: true,
+  /**
+   * Esconder os cards que não têm data para julgar: o jogo da prateleira de
+   * playables e o anúncio no feed. Também vale só para a página.
+   */
+  hideGamesAndAds: true,
   /** Teto de cards por colheita: só o topo do feed, sem paginar. */
   maxCards: 30,
   /**

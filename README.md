@@ -110,7 +110,8 @@ By understanding and using `.*`, you can effectively block a wide range of URLs 
 - **Custom URL Blocking:** Users can add or remove their own list of blocked URLs to tailor the extension to their specific needs.
 - **Simple User Interface:** An easy-to-use popup interface allows you to manage blocked URLs and toggle default settings with a single click.
 - **Non-Removable Defaults:** Critical distractions are always kept at bay, but can be toggled if absolutely necessary.
-- **Age filter on youtube.com:** Cards whose age is more than 3 days old are hidden from the page — home, subscriptions, search results, channels and the sidebar. Shorts, history, liked videos, watch later, playlists and the player are never filtered. Toggled in the popup, on by default.
+- **Age filter on youtube.com:** Cards whose age is more than 3 days old are hidden from the page — home, subscriptions, search results, channels and the sidebar. Shorts, history, liked videos, watch later, playlists and the player are never filtered.
+- **Games and ads off the feed:** The playables shelf cards and the sponsored cards (in-feed, search and sidebar slots) are hidden too — they carry no age, so they go whole. Both filters are toggled in the popup, on by default.
 
 ### How You Can Help
 
@@ -184,16 +185,22 @@ Vale onde há recomendação: home, inscrições, resultados de busca, página d
 do player. Fica fora do que o usuário escolheu ver: histórico, vídeos curtidos, assistir depois,
 biblioteca, playlists e a página do vídeo principal — ali a data costuma ser uma **ação** ("Assistido
 há 2 dias") e esconder o item apagaria a própria lista aberta. **Shorts não são tocados**: o
-bloqueio de URL que já existia continua sendo o dono desse caminho. Card sem data reconhecível,
-anúncio, Mix (link de playlist), canal, post e transmissão ao vivo ficam visíveis — o filtro falha
-**aberto**, nunca esconde o que não entendeu.
+bloqueio de URL que já existia continua sendo o dono desse caminho. Card sem data reconhecível, Mix
+(link de playlist), canal, post e transmissão ao vivo ficam visíveis — o filtro falha **aberto**,
+nunca esconde o que não entendeu.
 
-O interruptor é a caixa **"Esconder vídeos com mais de 3 dias"** no popup, ligada por padrão, e a
-página reage na hora: desligar devolve tudo que estava escondido sem recarregar. Nada é apagado ou
-guardado: o filtro só aplica `display: none` com uma marca no card, nunca remove nó, nunca fala com
-a rede e não guarda nada sobre os vídeos. Como o YouTube é uma SPA, a varredura acompanha nó novo,
-a navegação (`yt-navigate-finish`) e uma varredura periódica de 2 s, com piso de 500 ms entre uma e
-outra.
+**Jogos e anúncios** não têm idade no card: o jogo da prateleira de playables mostra "Jogado 345 mil
+vezes" e "Novidade", o anúncio mostra "Patrocinado". Por isso eles têm interruptor próprio e somem
+**inteiros**, sem olhar data — o card de playables (`/playables/`) e o anúncio no feed, na busca e
+no slot da coluna lateral. São cards de recomendação como os outros; o que os distingue é não haver
+publicação para julgar.
+
+Os dois interruptores ficam no popup, ligados por padrão: **"Esconder vídeos com mais de 3 dias"** e
+**"Esconder jogos e anúncios do feed"**. A página reage na hora: desligar devolve o que estava
+escondido sem recarregar, e os dois são independentes. Nada é apagado ou guardado: o filtro só
+aplica `display: none` com uma marca no card, nunca remove nó, nunca fala com a rede e não guarda
+nada sobre os vídeos. Como o YouTube é uma SPA, a varredura acompanha nó novo, a navegação
+(`yt-navigate-finish`) e uma varredura periódica de 2 s, com piso de 500 ms entre uma e outra.
 
 ### Estrutura
 
@@ -237,9 +244,10 @@ A seção **Inscrições** tem linha de status própria: quantos canais a ponte 
 guardado** — a contagem que o painel desenha, tirada do dado, não o número que a extração
 declarou —, quando, e o motivo quando falhou.
 
-A seção **Filtro do feed** tem uma caixa só, **"Esconder vídeos com mais de 3 dias"**, ligada por
-padrão. Ela mora em `chrome.storage.sync` (`hideOldVideos`) e o content script escuta a mudança —
-por isso desligar não pede recarregar a página. Uma aba do YouTube já aberta antes de a extensão ser
+A seção **Filtro do feed** tem duas caixas ligadas por padrão: **"Esconder vídeos com mais de 3
+dias"** (`hideOldVideos`) e **"Esconder jogos e anúncios do feed"** (`hideGamesAndAds`). As duas
+moram em `chrome.storage.sync` e o content script escuta a mudança — por isso desligar não pede
+recarregar a página, e cada uma vale por si. Uma aba do YouTube já aberta antes de a extensão ser
 recarregada só passa a filtrar depois de um refresh.
 
 ### Permissões
@@ -278,8 +286,9 @@ em pt e en — "há 5 h", "há 2 sem.", "há 1 mês", "há 13 anos", "1 day ago"
 ação ("Assistido há 5 dias" não é publicação), o que não é data ("N mil assistindo"), e o limite
 **estrito** de 3 dias: "há 3 dias" fica, "há 4 dias" some. O `age-core.js` não conhece DOM nem
 `chrome`, por isso roda num contexto `vm` do Node. O que esconde o card no DOM é conferido com uma
-página de fixture que reproduz a estrutura do feed — rich item, lockup, Mix, anúncio, Shorts e
-`#metadata-line` — e o mesmo interruptor do popup para desfazer e refazer.
+página de fixture que reproduz a estrutura do feed — rich item, lockup, Mix, Shorts,
+`#metadata-line`, a prateleira de jogos com `/playables/` e o anúncio no feed com o selo
+"Patrocinado" —, com os dois interruptores do popup desfazendo e refazendo cada regra de cada vez.
 
 ## Installation
 

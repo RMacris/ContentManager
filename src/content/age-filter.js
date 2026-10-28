@@ -6,6 +6,10 @@
  * interruptor do popup manda; o script não fala com a rede e não guarda nada
  * sobre os vídeos.
  *
+ * O segundo interruptor esconde o que não é vídeo e não tem data para julgar:
+ * o card de jogo (`/playables/`, "Jogado N mil vezes") e o anúncio no feed
+ * ("Patrocinado"). A idade não decide esses — eles somem inteiros.
+ *
  * Shorts ficam de fora: o bloqueio de URL que já existe continua sendo o dono
  * desse caminho. Histórico e listas salvas também: ali a data é uma ação do
  * usuário ("Assistido há…"), não uma recomendação — e esconder o item apagaria
@@ -30,6 +34,29 @@
     'ytd-grid-video-renderer',
     'ytd-compact-video-renderer',
     'yt-lockup-view-model',
+    // Anúncio também é card: o slot no feed, o da busca e o da coluna lateral.
+    'ytd-ad-slot-renderer',
+    'ytd-promoted-sparkles-web-renderer',
+    'ytd-display-ad-renderer',
+  ].join(',');
+
+  /**
+   * O que não é vídeo com data de publicação — não há idade para julgar.
+   *
+   * O card de jogo da prateleira de playables e o anúncio no feed: os dois têm
+   * interruptor próprio e são escondidos por inteiro, sem olhar a data.
+   */
+  const PROMOTED_SELECTOR = [
+    'ytd-ad-slot-renderer',
+    'ytd-in-feed-ad-layout-renderer',
+    'ytd-display-ad-renderer',
+    'ytd-promoted-sparkles-web-renderer',
+    'ytd-promoted-video-renderer',
+    'feed-ad-metadata-view-model',
+    'ad-badge-view-model',
+    'ytd-mini-game-card-view-model',
+    'mini-game-card-view-model',
+    'a[href*="/playables/"]',
   ].join(',');
 
   /** Onde o card escreve a idade: lockup novo e os blocos antigos. */
@@ -69,7 +96,8 @@
     '/playlist',
   ];
 
-  let enabled = false;
+  let hidingAged = false;
+  let hidingPromoted = false;
   let started = false;
   let domWatched = false;
   let scanTimer = null;
@@ -78,31 +106,39 @@
 
   /* --------------------------------------------------------------- preferência */
 
-  /** Lê o interruptor; qualquer falha cai no padrão ligado. */
+  /** Algum filtro ligado? Desligados os dois, a página fica como o YouTube fez. */
+  function isActive() {
+    return hidingAged || hidingPromoted;
+  }
+
+  /** Lê os interruptores; qualquer falha cai no padrão ligado. */
   function readSetting(done) {
     try {
-      chrome.storage.sync.get({ hideOldVideos: true }, (settings) => {
+      chrome.storage.sync.get({ hideOldVideos: true, hideGamesAndAds: true }, (settings) => {
         const failed = typeof chrome.runtime !== 'undefined' && chrome.runtime.lastError;
-        done(failed ? true : settings.hideOldVideos !== false);
+        if (failed) done(true, true);
+        else done(settings.hideOldVideos !== false, settings.hideGamesAndAds !== false);
       });
     } catch (error) {
-      done(true);
+      done(true, true);
     }
   }
 
   /**
-   * Liga/desliga ao vivo. Desligar desfaz na hora o que estava escondido;
-   * ligar recalcula a página inteira.
+   * Liga/desliga ao vivo. Desligar os dois desfaz na hora o que estava
+   * escondido; qualquer mudança recalcula a página inteira.
    */
-  function setEnabled(next) {
-    const value = next !== false;
-    if (enabled === value) {
-      if (value) scheduleScan();
+  function setFlags(aged, promoted) {
+    const nextAged = aged !== false;
+    const nextPromoted = promoted !== false;
+    if (nextAged === hidingAged && nextPromoted === hidingPromoted) {
+      if (isActive()) scheduleScan();
       return;
     }
-    enabled = value;
+    hidingAged = nextAged;
+    hidingPromoted = nextPromoted;
     cache = new WeakMap();
-    if (value) scheduleScan();
+    if (isActive()) scheduleScan();
     else unhideAll();
   }
 
@@ -143,7 +179,7 @@
 
   /** Agenda uma varredura, com um piso de 500 ms entre uma e outra. */
   function scheduleScan() {
-    if (!enabled) return;
+    if (!isActive()) return;
     if (scanTimer !== null) return;
     const wait = Math.max(0, 500 - (Date.now() - lastScanAt));
     scanTimer = setTimeout(() => {
@@ -155,13 +191,13 @@
 
   /** A varredura periódica: pega o card que envelheceu sem mudança de nó. */
   function sweep() {
-    if (!enabled) return;
+    if (!isActive()) return;
     if (document.visibilityState === 'hidden') return;
     scan();
   }
 
   function scan() {
-    if (!enabled) return;
+    if (!isActive()) return;
 
     if (isSkippedPath()) {
       unhideAll();
@@ -191,10 +227,16 @@
     return false;
   }
 
-  /** Só card de vídeo: playlist, canal, post e anúncio ficam de fora. */
+  /** Só card de vídeo: playlist, canal e post ficam de fora. */
   function isVideoCard(card) {
     if (card.querySelector('a[href*="/playlist"]') !== null) return false;
     return card.querySelector('a[href*="/watch?v="]') !== null;
+  }
+
+  /** Anúncio ou card de jogo: não tem data de publicação para julgar. */
+  function isPromotedCard(card) {
+    if (card.matches(PROMOTED_SELECTOR)) return true;
+    return card.querySelector(PROMOTED_SELECTOR) !== null;
   }
 
   /**
@@ -237,6 +279,18 @@
   }
 
   function evaluateCard(card) {
+    // Anúncio e jogo somem por inteiro: a data deles não existe no card.
+    if (isPromotedCard(card)) {
+      if (hidingPromoted) hide(card);
+      else show(card);
+      return;
+    }
+
+    if (!hidingAged) {
+      show(card);
+      return;
+    }
+
     if (isShortsCard(card) || !isVideoCard(card)) {
       show(card);
       return;
@@ -297,14 +351,20 @@
     if (started) return;
     started = true;
 
-    readSetting((value) => {
-      setEnabled(value);
+    readSetting((aged, promoted) => {
+      setFlags(aged, promoted);
     });
 
     if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.onChanged) {
       chrome.storage.onChanged.addListener((changes, area) => {
-        if (area !== 'sync' || !changes.hideOldVideos) return;
-        setEnabled(changes.hideOldVideos.newValue !== false);
+        if (area !== 'sync') return;
+        const agedChange = changes.hideOldVideos;
+        const promotedChange = changes.hideGamesAndAds;
+        if (!agedChange && !promotedChange) return;
+        setFlags(
+          agedChange ? agedChange.newValue : hidingAged,
+          promotedChange ? promotedChange.newValue : hidingPromoted,
+        );
       });
     }
 

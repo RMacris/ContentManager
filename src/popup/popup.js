@@ -15,6 +15,7 @@ function initialize() {
   document.getElementById('flushNow').addEventListener('click', handleFlushNow);
   document.getElementById('collectSubscriptions').addEventListener('click', handleCollectSubscriptions);
   document.getElementById('hideOldVideos').addEventListener('change', handleHideOldVideos);
+  document.getElementById('hideGamesAndAds').addEventListener('change', handleHideGamesAndAds);
   loadBlockedUrls();
   loadStatus();
 }
@@ -89,6 +90,7 @@ async function loadStatus() {
   document.getElementById('bridgeUrl').value = status.settings.bridgeUrl;
   document.getElementById('bridgeToken').value = status.settings.bridgeToken;
   document.getElementById('hideOldVideos').checked = status.settings.hideOldVideos !== false;
+  document.getElementById('hideGamesAndAds').checked = status.settings.hideGamesAndAds !== false;
 
   const lines = [];
   lines.push(status.bridge.ok ? 'ponte: respondendo' : `ponte: sem resposta — ${status.bridge.detail}`);
@@ -194,6 +196,16 @@ async function handleHideOldVideos() {
   const checked = document.getElementById('hideOldVideos').checked;
   await chrome.runtime.sendMessage({ action: 'saveSettings', patch: { hideOldVideos: checked } });
   displayMessage('filterMessage', checked ? 'Filtro ativado.' : 'Filtro desativado.', false);
+}
+
+/**
+ * Jogo e anúncio não têm data: o interruptor próprio decide se somem, e o
+ * content script reage ao `storage` igual ao filtro de idade.
+ */
+async function handleHideGamesAndAds() {
+  const checked = document.getElementById('hideGamesAndAds').checked;
+  await chrome.runtime.sendMessage({ action: 'saveSettings', patch: { hideGamesAndAds: checked } });
+  displayMessage('filterMessage', checked ? 'Jogos e anúncios ocultos.' : 'Jogos e anúncios visíveis.', false);
 }
 
 async function handleCollectNow() {
