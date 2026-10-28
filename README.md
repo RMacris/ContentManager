@@ -264,6 +264,11 @@ declarava **não eram usadas em lugar nenhum** do código e foram removidas.
 npm test
 ```
 
+O **manifesto** tem a primeira suíte (`test/manifest.test.mjs`): os limites do Chrome nos campos de
+texto — a `description` tem teto de **132** caracteres e um a mais faz o navegador recusar o pacote
+inteiro, sem aviso na página —, a versão igual à do `package.json` e todo arquivo apontado pelo
+manifesto existindo. Foi assim que a 1.10.0 passou a não filtrar nada em silêncio.
+
 Exercita o extrator contra um payload com o formato real capturado ao vivo — incluindo anúncio,
 Shorts, playlist, card sem avatar e o formato antigo —, a **rota sem aba** (fixture de HTML com
 `ytInitialData` e `PAGE_BUILD_LABEL`, marcador ausente, zero cards, HTTP não-ok, fetch rejeitado)
