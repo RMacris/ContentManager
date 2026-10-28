@@ -193,7 +193,9 @@ nunca esconde o que não entendeu.
 vezes" e "Novidade", o anúncio mostra "Patrocinado". Por isso eles têm interruptor próprio e somem
 **inteiros**, sem olhar data — o card de playables (`/playables/`) e o anúncio no feed, na busca e
 no slot da coluna lateral. São cards de recomendação como os outros; o que os distingue é não haver
-publicação para julgar.
+publicação para julgar. A **prateleira** que ficar sem nenhum card visível também some, para o
+título não ficar solto sobre um vazio — mas só a que teve todos os cards escondidos pelo filtro; a
+de Shorts, que nunca é tocada, continua de pé.
 
 Os dois interruptores ficam no popup, ligados por padrão: **"Esconder vídeos com mais de 3 dias"** e
 **"Esconder jogos e anúncios do feed"**. A página reage na hora: desligar devolve o que estava

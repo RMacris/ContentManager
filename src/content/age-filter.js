@@ -26,6 +26,8 @@
   const MAX_AGE_DAYS = core.MAX_AGE_DAYS;
   const OLD_ATTRIBUTE = 'data-yti-old';
   const DISPLAY_ATTRIBUTE = 'data-yti-old-display';
+  const SHELF_ATTRIBUTE = 'data-yti-old-shelf';
+  const SHELF_DISPLAY_ATTRIBUTE = 'data-yti-old-shelf-display';
 
   /** Os cards de vídeo de hoje: rich item (home/canal), search e os antigos. */
   const CARD_SELECTOR = [
@@ -76,6 +78,9 @@
     'ytd-reel-item-renderer',
     'ytd-rich-grid-slim-media',
   ].join(',');
+
+  /** Prateleira da home (jogos, "assistir de novo"): some se ficar sem card. */
+  const SHELF_SELECTOR = 'ytd-rich-shelf-renderer';
 
   /**
    * O que o usuário escolheu ver, não o que o YouTube recomendou. São as
@@ -210,6 +215,30 @@
       if (isNestedCard(card)) continue;
       evaluateCard(card);
     }
+
+    collapseShelves();
+  }
+
+  /**
+   * Prateleira que ficou sem nenhum card visível some com ele.
+   *
+   * O YouTube não recolhe a prateleira sozinho: esconder os jogos deixaria o
+   * título "Jogar" com um vazio embaixo. Só some a prateleira cujos cards
+   * foram todos marcados por este filtro — a de Shorts, que nunca é tocada,
+   * continua de pé.
+   */
+  function collapseShelves() {
+    const shelves = document.querySelectorAll(SHELF_SELECTOR);
+    for (let i = 0; i < shelves.length; i += 1) {
+      const shelf = shelves[i];
+      const items = shelf.querySelectorAll('ytd-rich-item-renderer');
+      let collapsed = items.length > 0;
+      for (let j = 0; j < items.length && collapsed; j += 1) {
+        if (items[j].getAttribute(OLD_ATTRIBUTE) !== '1') collapsed = false;
+      }
+      if (collapsed) hideShelf(shelf);
+      else showShelf(shelf);
+    }
   }
 
   /** O lockup dentro do rich item é o mesmo card: avalia só o de fora. */
@@ -339,9 +368,29 @@
     else card.style.display = display;
   }
 
+  function hideShelf(shelf) {
+    if (shelf.getAttribute(SHELF_ATTRIBUTE) !== '1') {
+      shelf.setAttribute(SHELF_DISPLAY_ATTRIBUTE, shelf.style.display || '');
+      shelf.setAttribute(SHELF_ATTRIBUTE, '1');
+    }
+    shelf.style.setProperty('display', 'none', 'important');
+  }
+
+  function showShelf(shelf) {
+    if (shelf.getAttribute(SHELF_ATTRIBUTE) !== '1') return;
+    const display = shelf.getAttribute(SHELF_DISPLAY_ATTRIBUTE);
+    shelf.removeAttribute(SHELF_ATTRIBUTE);
+    shelf.removeAttribute(SHELF_DISPLAY_ATTRIBUTE);
+    if (display === null || display === '') shelf.style.removeProperty('display');
+    else shelf.style.display = display;
+  }
+
   function unhideAll() {
-    const hidden = document.querySelectorAll('[' + OLD_ATTRIBUTE + ']');
-    for (let i = 0; i < hidden.length; i += 1) show(hidden[i]);
+    const hidden = document.querySelectorAll('[' + OLD_ATTRIBUTE + '], [' + SHELF_ATTRIBUTE + ']');
+    for (let i = 0; i < hidden.length; i += 1) {
+      if (hidden[i].getAttribute(SHELF_ATTRIBUTE) === '1') showShelf(hidden[i]);
+      else show(hidden[i]);
+    }
     cache = new WeakMap();
   }
 
