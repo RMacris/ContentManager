@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Bloqueador de HTTP e Sites",
-  "version": "1.8.0",
-  "description": "Bloqueie sites indesejados, colha o topo do feed do YouTube e colete as inscrições para filtragem local.",
+  "version": "1.9.0",
+  "description": "Bloqueie sites indesejados, esconda vídeos antigos no YouTube e colete o feed e as inscrições para filtragem local.",
   "permissions": [
     "storage",
     "declarativeNetRequest",
@@ -27,6 +27,11 @@
     {
       "matches": ["<all_urls>"],
       "js": ["src/content/block-guard.js"]
+    },
+    {
+      "matches": ["https://www.youtube.com/*"],
+      "js": ["src/content/age-core.js", "src/content/age-filter.js"],
+      "run_at": "document_start"
     }
   ],
   "web_accessible_resources": [

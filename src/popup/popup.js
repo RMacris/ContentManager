@@ -14,6 +14,7 @@ function initialize() {
   document.getElementById('collectNow').addEventListener('click', handleCollectNow);
   document.getElementById('flushNow').addEventListener('click', handleFlushNow);
   document.getElementById('collectSubscriptions').addEventListener('click', handleCollectSubscriptions);
+  document.getElementById('hideOldVideos').addEventListener('change', handleHideOldVideos);
   loadBlockedUrls();
   loadStatus();
 }
@@ -87,6 +88,7 @@ async function loadStatus() {
   document.getElementById('collectPeriodMinutes').value = status.settings.collectPeriodMinutes;
   document.getElementById('bridgeUrl').value = status.settings.bridgeUrl;
   document.getElementById('bridgeToken').value = status.settings.bridgeToken;
+  document.getElementById('hideOldVideos').checked = status.settings.hideOldVideos !== false;
 
   const lines = [];
   lines.push(status.bridge.ok ? 'ponte: respondendo' : `ponte: sem resposta — ${status.bridge.detail}`);
@@ -182,6 +184,16 @@ async function handleSaveSettings() {
   await chrome.runtime.sendMessage({ action: 'saveSettings', patch });
   displayMessage('collectMessage', 'Configurações salvas.', false);
   loadStatus();
+}
+
+/**
+ * O filtro de idade vale na hora: a mudança é a própria preferência, e o
+ * content script de cada aba do YouTube escuta o `storage`.
+ */
+async function handleHideOldVideos() {
+  const checked = document.getElementById('hideOldVideos').checked;
+  await chrome.runtime.sendMessage({ action: 'saveSettings', patch: { hideOldVideos: checked } });
+  displayMessage('filterMessage', checked ? 'Filtro ativado.' : 'Filtro desativado.', false);
 }
 
 async function handleCollectNow() {

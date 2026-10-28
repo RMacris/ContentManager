@@ -110,6 +110,7 @@ By understanding and using `.*`, you can effectively block a wide range of URLs 
 - **Custom URL Blocking:** Users can add or remove their own list of blocked URLs to tailor the extension to their specific needs.
 - **Simple User Interface:** An easy-to-use popup interface allows you to manage blocked URLs and toggle default settings with a single click.
 - **Non-Removable Defaults:** Critical distractions are always kept at bay, but can be toggled if absolutely necessary.
+- **Age filter on youtube.com:** Cards whose age is more than 3 days old are hidden from the page — home, subscriptions, search results, channels and the sidebar. Shorts, history, liked videos, watch later, playlists and the player are never filtered. Toggled in the popup, on by default.
 
 ### How You Can Help
 
@@ -172,6 +173,28 @@ O censo estrutural de cada varredura (onde mora o primeiro canal, e toda chave c
 `lastSubscriptionsDiagnostics`, com a versão da extensão — é assim que a forma logada da página
 pode ser medida sem navegador, e é onde a próxima divergência de forma se denuncia sozinha.
 
+### Filtro de idade nas recomendações
+
+Um content script em `youtube.com` esconde o card de **recomendação** que é mais velho que 3 dias.
+A idade é a que o próprio YouTube escreve no card — "há 5 dias", "há 2 sem.", "1 week ago" —, então
+o filtro lê o texto renderizado, não uma data absoluta: o que vale é a mesma conta que o usuário vê.
+O limite é estrito: **3 dias fica, 4 dias some**.
+
+Vale onde há recomendação: home, inscrições, resultados de busca, página de canal e a coluna lateral
+do player. Fica fora do que o usuário escolheu ver: histórico, vídeos curtidos, assistir depois,
+biblioteca, playlists e a página do vídeo principal — ali a data costuma ser uma **ação** ("Assistido
+há 2 dias") e esconder o item apagaria a própria lista aberta. **Shorts não são tocados**: o
+bloqueio de URL que já existia continua sendo o dono desse caminho. Card sem data reconhecível,
+anúncio, Mix (link de playlist), canal, post e transmissão ao vivo ficam visíveis — o filtro falha
+**aberto**, nunca esconde o que não entendeu.
+
+O interruptor é a caixa **"Esconder vídeos com mais de 3 dias"** no popup, ligada por padrão, e a
+página reage na hora: desligar devolve tudo que estava escondido sem recarregar. Nada é apagado ou
+guardado: o filtro só aplica `display: none` com uma marca no card, nunca remove nó, nunca fala com
+a rede e não guarda nada sobre os vídeos. Como o YouTube é uma SPA, a varredura acompanha nó novo,
+a navegação (`yt-navigate-finish`) e uma varredura periódica de 2 s, com piso de 500 ms entre uma e
+outra.
+
 ### Estrutura
 
 ```
@@ -187,11 +210,13 @@ src/
 │   ├── subscriptions.js   orquestra a coleta das inscrições (manual, pelo popup)
 │   └── bridge-client.js   entrega por HTTP e fila de pendentes
 ├── content/
-│   └── block-guard.js     redireciona URLs bloqueadas (script clássico)
+│   ├── block-guard.js     redireciona URLs bloqueadas (script clássico)
+│   ├── age-core.js        lê a idade do card e decide o limite (script clássico, sem DOM)
+│   └── age-filter.js      esconde/mostra os cards no site do YouTube
 ├── injected/
 │   ├── feed-extract.js    lê os cards do `ytInitialData` (worker e página)
 │   └── subscriptions-extract.js  lê as inscrições no mundo MAIN da página
-└── popup/                 interface: bloqueio e configuração da coleta
+└── popup/                 interface: bloqueio, filtro de idade e configuração da coleta
 ```
 
 ### Configuração
@@ -211,6 +236,11 @@ ponte não respondeu em 5 s" — nunca o `TypeError: Failed to fetch` cru.
 A seção **Inscrições** tem linha de status própria: quantos canais a ponte **confirmou ter
 guardado** — a contagem que o painel desenha, tirada do dado, não o número que a extração
 declarou —, quando, e o motivo quando falhou.
+
+A seção **Filtro do feed** tem uma caixa só, **"Esconder vídeos com mais de 3 dias"**, ligada por
+padrão. Ela mora em `chrome.storage.sync` (`hideOldVideos`) e o content script escuta a mudança —
+por isso desligar não pede recarregar a página. Uma aba do YouTube já aberta antes de a extensão ser
+recarregada só passa a filtrar depois de um refresh.
 
 ### Permissões
 
@@ -242,6 +272,14 @@ token final fechando a lista, e as três correntes que **não** juram fim (fecho
 grade reconhecível e continuação morta), mais o censo estrutural que sai em `diagnostics`; e a
 **coreografia** da aba própria (segundo plano, fechada ao fim, entrega com token, lista vazia e
 falha sem aba órfã, rodada reaproveitada depois de uma morte do worker, censo gravado no storage).
+
+A **idade dos cards** tem suíte própria (`test/age-core.test.mjs`): as formas que o YouTube escreve
+em pt e en — "há 5 h", "há 2 sem.", "há 1 mês", "há 13 anos", "1 day ago" —, a recusa das datas de
+ação ("Assistido há 5 dias" não é publicação), o que não é data ("N mil assistindo"), e o limite
+**estrito** de 3 dias: "há 3 dias" fica, "há 4 dias" some. O `age-core.js` não conhece DOM nem
+`chrome`, por isso roda num contexto `vm` do Node. O que esconde o card no DOM é conferido com uma
+página de fixture que reproduz a estrutura do feed — rich item, lockup, Mix, anúncio, Shorts e
+`#metadata-line` — e o mesmo interruptor do popup para desfazer e refazer.
 
 ## Installation
 

@@ -16,6 +16,11 @@ export const DEFAULT_SETTINGS = {
   collectEnabled: true,
   /** Período da colheita, em minutos. Editável no popup. */
   collectPeriodMinutes: 60,
+  /**
+   * Esconder no site do YouTube os cards de vídeo com mais de 3 dias (4 dias
+   * ou mais). Vale só para a página; a colheita continua lendo o feed inteiro.
+   */
+  hideOldVideos: true,
   /** Teto de cards por colheita: só o topo do feed, sem paginar. */
   maxCards: 30,
   /**
