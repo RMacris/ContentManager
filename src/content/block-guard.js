@@ -5,50 +5,74 @@
  * Script de conteúdo clássico: o Chrome não carrega módulos ES aqui, então este
  * arquivo não importa nada e é autossuficiente de propósito.
  */
+let blockedUrlPatterns = [];
+let rulesRevision = 0;
+
+const initialRulesRevision = rulesRevision;
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'sync' || !changes.blockedUrls) return;
+  rulesRevision += 1;
+  setBlockedUrls(changes.blockedUrls.newValue);
+});
+
 chrome.storage.sync.get({ blockedUrls: [] }, (data) => {
-  const blockedUrls = data.blockedUrls;
+  if (rulesRevision !== initialRulesRevision) return;
+  setBlockedUrls(data.blockedUrls);
+});
 
-  checkUrl(window.location.href);
-  observeMutations();
-  observeHistoryChanges();
+observeMutations();
+observeHistoryChanges();
 
-  function checkUrl(url) {
+function setBlockedUrls(blockedUrls) {
+  blockedUrlPatterns = [];
+  if (Array.isArray(blockedUrls)) {
     for (const blockedUrl of blockedUrls) {
-      const urlPattern = new RegExp(blockedUrl.urlPattern);
-      if (urlPattern.test(url)) {
-        window.location.href = chrome.runtime.getURL('blocked.html');
-        break;
+      if (!blockedUrl || typeof blockedUrl.urlPattern !== 'string') continue;
+      try {
+        blockedUrlPatterns.push(new RegExp(blockedUrl.urlPattern));
+      } catch {
+        // Ignore malformed legacy values instead of breaking the page guard.
       }
     }
   }
+  checkUrl(window.location.href);
+}
 
-  function observeMutations() {
-    const observer = new MutationObserver(() => {
-      checkUrl(window.location.href);
-    });
-
-    observer.observe(document, { subtree: true, childList: true });
+function checkUrl(url) {
+  for (const pattern of blockedUrlPatterns) {
+    if (pattern.test(url)) {
+      window.location.href = chrome.runtime.getURL('blocked.html');
+      break;
+    }
   }
+}
 
-  function observeHistoryChanges() {
-    history.pushState = createHistoryHandler(history.pushState);
-    history.replaceState = createHistoryHandler(history.replaceState);
+function observeMutations() {
+  const observer = new MutationObserver(() => {
+    checkUrl(window.location.href);
+  });
 
-    window.addEventListener('popstate', () => {
-      window.dispatchEvent(new Event('locationchange'));
-    });
+  observer.observe(document, { subtree: true, childList: true });
+}
 
-    window.addEventListener('locationchange', () => {
-      checkUrl(window.location.href);
-    });
-  }
+function observeHistoryChanges() {
+  history.pushState = createHistoryHandler(history.pushState);
+  history.replaceState = createHistoryHandler(history.replaceState);
 
-  function createHistoryHandler(originalFunction) {
-    return function () {
-      const result = originalFunction.apply(this, arguments);
-      window.dispatchEvent(new Event('pushstate'));
-      window.dispatchEvent(new Event('locationchange'));
-      return result;
-    };
-  }
-});
+  window.addEventListener('popstate', () => {
+    window.dispatchEvent(new Event('locationchange'));
+  });
+
+  window.addEventListener('locationchange', () => {
+    checkUrl(window.location.href);
+  });
+}
+
+function createHistoryHandler(originalFunction) {
+  return function () {
+    const result = originalFunction.apply(this, arguments);
+    window.dispatchEvent(new Event('pushstate'));
+    window.dispatchEvent(new Event('locationchange'));
+    return result;
+  };
+}

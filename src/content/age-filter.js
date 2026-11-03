@@ -2,13 +2,18 @@
  * Filtro de idade no site do YouTube.
  *
  * Esconde o card de vídeo cuja idade de publicação — a que o próprio YouTube
- * escreve no card ("há 4 dias", "1 week ago") — é maior que 3 dias. O
- * interruptor do popup manda; o script não fala com a rede e não guarda nada
+ * escreve no card ("há 4 dias", "1 week ago") — passa do limite escolhido no
+ * popup (3 dias por padrão). O script não fala com a rede e não guarda nada
  * sobre os vídeos.
  *
  * O segundo interruptor esconde o que não é vídeo e não tem data para julgar:
  * o card de jogo (`/playables/`, "Jogado N mil vezes") e o anúncio no feed
  * ("Patrocinado"). A idade não decide esses — eles somem inteiros.
+ *
+ * O terceiro interruptor esconde o card cujo título tem uma das palavras-chave
+ * da lista (`blockedKeywords`, que vem de fábrica com os termos de IA) ou cujo
+ * canal está na lista de canais (`blockedChannels`). A ocultação é a mesma da
+ * idade: `display: none` com marca no card, sem remover nó.
  *
  * Shorts ficam de fora: o bloqueio de URL que já existe continua sendo o dono
  * desse caminho. Histórico e listas salvas também: ali a data é uma ação do
@@ -20,10 +25,25 @@
 
   const core = typeof globalThis !== 'undefined' ? globalThis.YTIAgeFilter : null;
   if (core === null || core === undefined) return;
-  if (globalThis.__ytiAgeFilterStarted === true) return;
-  globalThis.__ytiAgeFilterStarted = true;
 
-  const MAX_AGE_DAYS = core.MAX_AGE_DAYS;
+  // Já há uma instância viva? Recarregar a extensão órfã o script antigo: o
+  // `chrome.runtime.id` dele apaga. A guarda devolve falso e a reinjeção
+  // (chrome.scripting) pode reviver a aba sem refresh.
+  const running = globalThis.__ytiAgeFilterAlive;
+  if (typeof running === 'function' && running()) return;
+  globalThis.__ytiAgeFilterAlive = isExtensionAlive;
+
+  const keywordCore = typeof globalThis !== 'undefined' ? globalThis.YTIKeywordFilter : null;
+
+  /** O contexto desta instância ainda fala com a extensão? */
+  function isExtensionAlive() {
+    try {
+      return typeof chrome !== 'undefined' && Boolean(chrome.runtime) && Boolean(chrome.runtime.id);
+    } catch (error) {
+      return false;
+    }
+  }
+
   const OLD_ATTRIBUTE = 'data-yti-old';
   const DISPLAY_ATTRIBUTE = 'data-yti-old-display';
   const SHELF_ATTRIBUTE = 'data-yti-old-shelf';
@@ -79,6 +99,30 @@
     'ytd-rich-grid-slim-media',
   ].join(',');
 
+  /** Onde o card escreve o título do vídeo, do card antigo ao lockup novo. */
+  const TITLE_SELECTORS = [
+    '#video-title',
+    '#video-title-link',
+    '.yt-lockup-metadata-view-model__heading',
+    'h3',
+    'a[title]',
+  ];
+
+  /** Onde o card escreve o nome do canal que publicou o vídeo. */
+  const CHANNEL_SELECTORS = [
+    'ytd-channel-name a',
+    '#channel-name a',
+    'a[href^="/@"]',
+    'a[href*="/channel/"]',
+    'a[href*="/c/"]',
+    'a[href*="/user/"]',
+    '.yt-lockup-metadata-view-model__subheading',
+  ];
+
+  /** A página de inscrições, de onde sai o catálogo de canais. */
+  const CHANNELS_PAGE_PATH = '/feed/channels';
+  const SUBSCRIBED_CHANNEL_SELECTOR = 'ytd-channel-renderer';
+
   /** Prateleira da home (jogos, "assistir de novo"): some se ficar sem card. */
   const SHELF_SELECTOR = 'ytd-rich-shelf-renderer';
 
@@ -103,48 +147,154 @@
 
   let hidingAged = false;
   let hidingPromoted = false;
+  let blockingKeywords = false;
+  let blockedKeywords = [];
+  let blockedChannels = [];
+  let allowedHandles = [];
+  let allowedNames = [];
+  let allowedSignature = '';
+  let maxAgeDays = core.MAX_AGE_DAYS;
+  let settingsRevision = 0;
   let started = false;
   let domWatched = false;
   let scanTimer = null;
   let lastScanAt = 0;
   let cache = new WeakMap();
+  let keywordCache = new WeakMap();
+  let collectedChannels = new Map();
+  let lastCatalogSignature = '';
+  let domObserver = null;
+  let sweepTimer = null;
+  let stopped = false;
 
   /* --------------------------------------------------------------- preferência */
 
-  /** Algum filtro ligado? Desligados os dois, a página fica como o YouTube fez. */
+  /** Algum filtro ligado? Desligados todos, a página fica como o YouTube fez. */
   function isActive() {
-    return hidingAged || hidingPromoted;
+    return hidingAged || hidingPromoted || blockingKeywords;
   }
 
   /** Lê os interruptores; qualquer falha cai no padrão ligado. */
   function readSetting(done) {
     try {
-      chrome.storage.sync.get({ hideOldVideos: true, hideGamesAndAds: true }, (settings) => {
-        const failed = typeof chrome.runtime !== 'undefined' && chrome.runtime.lastError;
-        if (failed) done(true, true);
-        else done(settings.hideOldVideos !== false, settings.hideGamesAndAds !== false);
-      });
+      chrome.storage.sync.get(
+        {
+          hideOldVideos: true,
+          hideGamesAndAds: true,
+          maxAgeDays: core.MAX_AGE_DAYS,
+          blockKeywords: false,
+          blockedKeywords: [],
+          blockedChannels: [],
+          allowedChannels: [],
+        },
+        (settings) => {
+          const failed = typeof chrome.runtime !== 'undefined' && chrome.runtime.lastError;
+          if (failed) {
+            done({ aged: true, promoted: true, ageLimit: core.MAX_AGE_DAYS });
+            return;
+          }
+          done({
+            aged: settings.hideOldVideos !== false,
+            promoted: settings.hideGamesAndAds !== false,
+            ageLimit: settings.maxAgeDays,
+            blockKeywords: settings.blockKeywords === true,
+            keywords: settings.blockedKeywords,
+            channels: settings.blockedChannels,
+            allowed: settings.allowedChannels,
+          });
+        },
+      );
     } catch (error) {
-      done(true, true);
+      done({ aged: true, promoted: true, ageLimit: core.MAX_AGE_DAYS });
     }
   }
 
   /**
-   * Liga/desliga ao vivo. Desligar os dois desfaz na hora o que estava
-   * escondido; qualquer mudança recalcula a página inteira.
+   * Liga/desliga ao vivo. Desligar tudo desfaz na hora o que estava escondido;
+   * qualquer mudança recalcula a página inteira.
    */
-  function setFlags(aged, promoted) {
-    const nextAged = aged !== false;
-    const nextPromoted = promoted !== false;
-    if (nextAged === hidingAged && nextPromoted === hidingPromoted) {
+  function setFlags(next) {
+    const nextAged = next.aged !== false;
+    const nextPromoted = next.promoted !== false;
+    const nextMaxAgeDays = normalizeMaxAgeDays(next.ageLimit);
+    const nextBlockingKeywords = next.blockKeywords === true;
+    const nextKeywords = normalizeList(next.keywords);
+    const nextChannels = normalizeList(next.channels);
+    const nextAllowed = normalizeAllowed(next.allowed);
+    const nextAllowedSignature = allowedSignatureOf(nextAllowed);
+    if (
+      nextAged === hidingAged &&
+      nextPromoted === hidingPromoted &&
+      nextMaxAgeDays === maxAgeDays &&
+      nextBlockingKeywords === blockingKeywords &&
+      nextKeywords === blockedKeywords &&
+      nextChannels === blockedChannels &&
+      nextAllowedSignature === allowedSignature
+    ) {
       if (isActive()) scheduleScan();
       return;
     }
     hidingAged = nextAged;
     hidingPromoted = nextPromoted;
+    maxAgeDays = nextMaxAgeDays;
+    blockingKeywords = nextBlockingKeywords;
+    blockedKeywords = nextKeywords;
+    blockedChannels = nextChannels;
+    allowedHandles = nextAllowed.handles;
+    allowedNames = nextAllowed.names;
+    allowedSignature = nextAllowedSignature;
     cache = new WeakMap();
+    keywordCache = new WeakMap();
     if (isActive()) scheduleScan();
     else unhideAll();
+  }
+
+  function normalizeMaxAgeDays(value) {
+    const days = Number(value);
+    return Number.isInteger(days) && days >= 1 && days <= 365 ? days : core.MAX_AGE_DAYS;
+  }
+
+  /** A lista que veio do armazenamento, só com texto útil. */
+  function normalizeList(values) {
+    if (!Array.isArray(values)) return [];
+    const list = [];
+    for (let i = 0; i < values.length; i += 1) {
+      if (typeof values[i] !== 'string') continue;
+      const value = values[i].trim();
+      if (value !== '') list.push(value);
+    }
+    return list;
+  }
+
+  /** A allowlist vira dois conjuntos: handles e nomes normalizados. */
+  function normalizeAllowed(values) {
+    const handles = [];
+    const names = [];
+    if (!Array.isArray(values)) return { handles, names };
+    for (let i = 0; i < values.length; i += 1) {
+      const entry = values[i];
+      if (entry === null || typeof entry !== 'object') continue;
+      if (typeof entry.handle === 'string' && entry.handle.trim() !== '') {
+        handles.push(normalizeHandle(entry.handle));
+      }
+      if (typeof entry.name === 'string' && entry.name.trim() !== '') {
+        names.push(normalizeChannelName(entry.name));
+      }
+    }
+    return { handles, names };
+  }
+
+  function allowedSignatureOf(allowed) {
+    return allowed.handles.join('\u0001') + '\u0002' + allowed.names.join('\u0001');
+  }
+
+  function normalizeHandle(value) {
+    return value.trim().replace(/^@/, '').toLowerCase();
+  }
+
+  function normalizeChannelName(value) {
+    if (keywordCore !== null && keywordCore !== undefined) return keywordCore.normalizeText(value);
+    return value.trim().toLowerCase();
   }
 
   /* ------------------------------------------------------------------- páginas */
@@ -173,8 +323,8 @@
       return;
     }
     domWatched = true;
-    const observer = new MutationObserver(scheduleScan);
-    observer.observe(root, { childList: true, subtree: true });
+    domObserver = new MutationObserver(scheduleScan);
+    domObserver.observe(root, { childList: true, subtree: true });
     document.addEventListener('yt-navigate-finish', scheduleScan);
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') scheduleScan();
@@ -182,32 +332,72 @@
     scheduleScan();
   }
 
+  /**
+   * Instância órfã não pode ficar brigando com a nova: quando o contexto morre
+   * (extensão recarregada), o timer e o observer param na próxima volta.
+   */
+  function stopIfOrphaned() {
+    if (stopped) return true;
+    if (isExtensionAlive()) return false;
+    stop();
+    return true;
+  }
+
+  function stop() {
+    stopped = true;
+    if (sweepTimer !== null) {
+      clearInterval(sweepTimer);
+      sweepTimer = null;
+    }
+    if (domObserver !== null) {
+      domObserver.disconnect();
+      domObserver = null;
+    }
+  }
+
   /** Agenda uma varredura, com um piso de 500 ms entre uma e outra. */
   function scheduleScan() {
-    if (!isActive()) return;
+    if (stopIfOrphaned()) return;
+    if (!shouldScan()) return;
     if (scanTimer !== null) return;
     const wait = Math.max(0, 500 - (Date.now() - lastScanAt));
     scanTimer = setTimeout(() => {
       scanTimer = null;
       lastScanAt = Date.now();
+      if (stopIfOrphaned()) return;
       scan();
     }, wait);
   }
 
   /** A varredura periódica: pega o card que envelheceu sem mudança de nó. */
   function sweep() {
-    if (!isActive()) return;
+    if (stopIfOrphaned()) return;
+    if (!shouldScan()) return;
     if (document.visibilityState === 'hidden') return;
     scan();
   }
 
-  function scan() {
-    if (!isActive()) return;
+  /**
+   * Há algo a fazer nesta página? Filtros ligados sempre; na página de
+   * inscrições também, porque é de lá que sai o catálogo dos sempre
+   * recomendados (mesmo com os filtros desligados).
+   */
+  function shouldScan() {
+    return isActive() || isChannelsPage();
+  }
 
+  function isChannelsPage() {
+    return String(location.pathname || '') === CHANNELS_PAGE_PATH;
+  }
+
+  function scan() {
+    if (!shouldScan()) return;
     if (isSkippedPath()) {
       unhideAll();
       return;
     }
+
+    if (isChannelsPage()) collectSubscribedChannels();
 
     const cards = document.querySelectorAll(CARD_SELECTOR);
     for (let i = 0; i < cards.length; i += 1) {
@@ -307,6 +497,174 @@
     return texts;
   }
 
+  /** O título do vídeo: o primeiro seletor que tem texto decide. */
+  function titleText(card) {
+    for (let i = 0; i < TITLE_SELECTORS.length; i += 1) {
+      const node = card.querySelector(TITLE_SELECTORS[i]);
+      if (node === null || node === undefined) continue;
+      const text = textWithBreaks(node);
+      if (text !== '') return text;
+    }
+    return '';
+  }
+
+  /** Os nós de canal que o card mostra, sem repetir o mesmo nó. */
+  function channelNodes(card) {
+    const nodes = [];
+    for (let i = 0; i < CHANNEL_SELECTORS.length; i += 1) {
+      const found = card.querySelectorAll(CHANNEL_SELECTORS[i]);
+      for (let j = 0; j < found.length; j += 1) {
+        if (nodes.indexOf(found[j]) === -1) nodes.push(found[j]);
+      }
+    }
+    return nodes;
+  }
+
+  /** Os nomes de canal que o card mostra (o do texto e o do avatar). */
+  function channelTexts(card) {
+    const texts = [];
+    const nodes = channelNodes(card);
+    for (let i = 0; i < nodes.length; i += 1) {
+      const text = textWithBreaks(nodes[i]);
+      if (text !== '') texts.push(text);
+    }
+    return texts;
+  }
+
+  /**
+   * O card tem palavra-chave no título ou canal na lista de bloqueados?
+   *
+   * A assinatura evita reprocessar em cada varredura: muda quando o YouTube
+   * recicla o card ou troca o texto dele.
+   */
+  function isKeywordBlocked(card) {
+    if (keywordCore === null || keywordCore === undefined) return false;
+    const title = titleText(card);
+    const channels = channelTexts(card);
+    const signature = title + '\u0001' + channels.join('\u0001');
+    const cached = keywordCache.get(card);
+    if (cached !== undefined && cached.signature === signature) return cached.blocked;
+
+    let blocked = keywordCore.matchesKeyword(title, blockedKeywords);
+    if (!blocked) {
+      for (let i = 0; i < channels.length; i += 1) {
+        if (keywordCore.matchesChannel(channels[i], blockedChannels)) {
+          blocked = true;
+          break;
+        }
+      }
+    }
+    // Layout desconhecido (sem título reconhecível): o texto inteiro do card
+    // ainda encontra a palavra-chave, em vez de o filtro falhar aberto.
+    if (!blocked && title === '') {
+      blocked = keywordCore.matchesKeyword(textWithBreaks(card), blockedKeywords);
+    }
+
+    keywordCache.set(card, { signature, blocked });
+    return blocked;
+  }
+
+  /* ------------------------------------------------------- sempre recomendados */
+
+  /**
+   * O canal do card está na allowlist? Casa pelo handle do link (`/@nome`) ou
+   * pelo nome exato normalizado. Quem está aqui nunca é escondido — a idade, a
+   * palavra-chave e até um canal bloqueado perdem para a allowlist.
+   */
+  function isAllowedCard(card) {
+    if (allowedHandles.length === 0 && allowedNames.length === 0) return false;
+    const nodes = channelNodes(card);
+    for (let i = 0; i < nodes.length; i += 1) {
+      const handle = channelHandleOf(nodes[i]);
+      if (handle !== '' && allowedHandles.indexOf(handle) !== -1) return true;
+      const name = textWithBreaks(nodes[i]);
+      if (name !== '' && allowedNames.indexOf(normalizeChannelName(name)) !== -1) return true;
+    }
+    return false;
+  }
+
+  /** O handle do canal a partir do href do link, sem `@` e em minúsculas. */
+  function channelHandleOf(node) {
+    if (typeof node.getAttribute !== 'function') return '';
+    const href = node.getAttribute('href');
+    if (typeof href !== 'string') return '';
+    const match = href.match(/^\/@([^/?#]+)/) || href.match(/youtube\.com\/@([^/?#]+)/);
+    if (match === null) return '';
+    try {
+      return decodeURIComponent(match[1]).toLowerCase();
+    } catch (error) {
+      return match[1].toLowerCase();
+    }
+  }
+
+  /**
+   * Na página de inscrições, guarda o que os cards de canal mostram. A varredura
+   * roda de novo a cada card novo (scroll), e o service worker mescla com o
+   * catálogo que já estava guardado.
+   */
+  function collectSubscribedChannels() {
+    const items = document.querySelectorAll(SUBSCRIBED_CHANNEL_SELECTOR);
+    let changed = false;
+
+    for (let i = 0; i < items.length; i += 1) {
+      const item = items[i];
+      const nameNode = item.querySelector('#channel-title #text') || item.querySelector('#text');
+      const name = nameNode === null ? '' : textWithBreaks(nameNode);
+      if (name === '') continue;
+
+      const mainLink = item.querySelector('#main-link');
+      const href = mainLink === null || typeof mainLink.getAttribute !== 'function'
+        ? null
+        : mainLink.getAttribute('href');
+      const subscribersNode = item.querySelector('#subscribers');
+      const subscribers = subscribersNode === null ? '' : textWithBreaks(subscribersNode);
+      const handle = subscribers.startsWith('@')
+        ? subscribers.split(' ')[0]
+        : handleFromHref(href);
+
+      const avatarNode = item.querySelector('#img');
+      const avatarUrl = avatarNode === null || typeof avatarNode.getAttribute !== 'function'
+        ? ''
+        : avatarNode.getAttribute('src') || '';
+
+      const key = (handle || name).toLowerCase();
+      const previous = collectedChannels.get(key);
+      if (
+        previous === undefined ||
+        previous.name !== name ||
+        previous.handle !== handle ||
+        previous.avatarUrl !== avatarUrl
+      ) {
+        collectedChannels.set(key, { name, handle, avatarUrl });
+        changed = true;
+      }
+    }
+
+    if (!changed) return;
+    const signature = Array.from(collectedChannels.keys()).sort().join('\u0001');
+    if (signature === lastCatalogSignature) return;
+    lastCatalogSignature = signature;
+
+    try {
+      chrome.runtime
+        .sendMessage({ action: 'saveChannelCatalog', channels: Array.from(collectedChannels.values()) })
+        .catch(() => {});
+    } catch (error) {
+      // Contexto invalidado (extensão recarregada): a próxima injeção resolve.
+    }
+  }
+
+  function handleFromHref(href) {
+    if (typeof href !== 'string') return '';
+    const match = href.match(/^\/@([^/?#]+)/) || href.match(/youtube\.com\/@([^/?#]+)/);
+    if (match === null) return '';
+    try {
+      return '@' + decodeURIComponent(match[1]);
+    } catch (error) {
+      return '@' + match[1];
+    }
+  }
+
   function evaluateCard(card) {
     // Anúncio e jogo somem por inteiro: a data deles não existe no card.
     if (isPromotedCard(card)) {
@@ -315,12 +673,29 @@
       return;
     }
 
-    if (!hidingAged) {
+    if (!blockingKeywords && !hidingAged) {
       show(card);
       return;
     }
 
     if (isShortsCard(card) || !isVideoCard(card)) {
+      show(card);
+      return;
+    }
+
+    // Sempre recomendado vence tudo: a allowlist é a última palavra.
+    if (isAllowedCard(card)) {
+      show(card);
+      return;
+    }
+
+    // Palavra-chave no título ou canal bloqueado: mesma ocultação da idade.
+    if (blockingKeywords && isKeywordBlocked(card)) {
+      hide(card);
+      return;
+    }
+
+    if (!hidingAged) {
       show(card);
       return;
     }
@@ -339,7 +714,7 @@
 
     let old = false;
     for (let i = 0; i < texts.length; i += 1) {
-      if (core.shouldHide(texts[i], MAX_AGE_DAYS)) {
+      if (core.shouldHide(texts[i], maxAgeDays)) {
         old = true;
         break;
       }
@@ -392,6 +767,7 @@
       else show(hidden[i]);
     }
     cache = new WeakMap();
+    keywordCache = new WeakMap();
   }
 
   /* ---------------------------------------------------------------------- start */
@@ -400,8 +776,10 @@
     if (started) return;
     started = true;
 
-    readSetting((aged, promoted) => {
-      setFlags(aged, promoted);
+    const initialSettingsRevision = settingsRevision;
+    readSetting((next) => {
+      if (settingsRevision !== initialSettingsRevision) return;
+      setFlags(next);
     });
 
     if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.onChanged) {
@@ -409,16 +787,37 @@
         if (area !== 'sync') return;
         const agedChange = changes.hideOldVideos;
         const promotedChange = changes.hideGamesAndAds;
-        if (!agedChange && !promotedChange) return;
-        setFlags(
-          agedChange ? agedChange.newValue : hidingAged,
-          promotedChange ? promotedChange.newValue : hidingPromoted,
-        );
+        const ageLimitChange = changes.maxAgeDays;
+        const keywordToggleChange = changes.blockKeywords;
+        const keywordsChange = changes.blockedKeywords;
+        const channelsChange = changes.blockedChannels;
+        const allowedChange = changes.allowedChannels;
+        if (
+          !agedChange &&
+          !promotedChange &&
+          !ageLimitChange &&
+          !keywordToggleChange &&
+          !keywordsChange &&
+          !channelsChange &&
+          !allowedChange
+        ) {
+          return;
+        }
+        settingsRevision += 1;
+        setFlags({
+          aged: agedChange ? agedChange.newValue : hidingAged,
+          promoted: promotedChange ? promotedChange.newValue : hidingPromoted,
+          ageLimit: ageLimitChange ? ageLimitChange.newValue : maxAgeDays,
+          blockKeywords: keywordToggleChange ? keywordToggleChange.newValue : blockingKeywords,
+          keywords: keywordsChange ? keywordsChange.newValue : blockedKeywords,
+          channels: channelsChange ? channelsChange.newValue : blockedChannels,
+          allowed: allowedChange ? allowedChange.newValue : { handles: allowedHandles, names: allowedNames },
+        });
       });
     }
 
     watchDom();
-    setInterval(sweep, 2000);
+    if (!stopped) sweepTimer = setInterval(sweep, 2000);
   }
 
   start();

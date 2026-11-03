@@ -1,39 +1,57 @@
 /**
  * O bloqueio de URLs — a funcionalidade original da extensão, preservada.
  *
- * Mudou de lugar e ganhou uma correção: a versão anterior removia apenas as
- * regras cujos ids ainda existiam na lista nova. Ao remover uma URL do fim da
- * lista, a regra antiga ficava para trás e continuava bloqueando. Aqui as regras
- * dinâmicas existentes são lidas e removidas por inteiro antes de gravar as novas.
+ * As expressões são regras dinâmicas do Chrome. Primeiro atualizamos o DNR e só
+ * depois persistimos a lista; se a API rejeitar a regra, a interface recebe o
+ * erro sem deixar a lista e o bloqueio fora de sincronia.
  */
 
 const STORAGE_KEY = 'blockedUrls';
+let rulesQueue = Promise.resolve();
 
-export async function initializeRules() {
-  const data = await chrome.storage.sync.get({ [STORAGE_KEY]: [] });
-  await updateRules(data[STORAGE_KEY]);
+export function initializeRules() {
+  return serialize(async () => {
+    await updateRules(await getBlockedUrls());
+  });
 }
 
-export async function addBlockRule(urlPattern) {
-  const pattern = String(urlPattern ?? '').trim();
-  if (!isValidRegex(pattern)) {
-    return { action: 'error', message: 'Invalid regex pattern.' };
-  }
-
+export async function getBlockedUrls() {
   const data = await chrome.storage.sync.get({ [STORAGE_KEY]: [] });
-  const blockedUrls = data[STORAGE_KEY];
-  blockedUrls.push({ urlPattern: pattern, ruleId: generateUniqueId() });
-  await chrome.storage.sync.set({ [STORAGE_KEY]: blockedUrls });
-  await updateRules(blockedUrls);
-  return { action: 'success', message: 'URL pattern blocked successfully.' };
+  return Array.isArray(data[STORAGE_KEY]) ? data[STORAGE_KEY] : [];
 }
 
-export async function removeBlockRule(ruleId) {
-  const data = await chrome.storage.sync.get({ [STORAGE_KEY]: [] });
-  const blockedUrls = data[STORAGE_KEY].filter((urlObj) => urlObj.ruleId !== ruleId);
-  await chrome.storage.sync.set({ [STORAGE_KEY]: blockedUrls });
-  await updateRules(blockedUrls);
-  return { action: 'success', message: 'URL pattern unblocked successfully.' };
+export function addBlockRule(urlPattern) {
+  return serialize(async () => {
+    const pattern = String(urlPattern ?? '').trim();
+    if (!pattern) {
+      return { action: 'error', message: 'Informe uma expressão regular.' };
+    }
+    if (!(await isValidRegex(pattern))) {
+      return { action: 'error', message: 'A expressão regular é inválida ou não é compatível com o Chrome.' };
+    }
+
+    const blockedUrls = await getBlockedUrls();
+    if (blockedUrls.some((urlObj) => urlObj.urlPattern === pattern)) {
+      return { action: 'error', message: 'Esse padrão já está na lista.' };
+    }
+
+    const nextBlockedUrls = [...blockedUrls, { urlPattern: pattern, ruleId: generateUniqueId() }];
+    await saveBlockedUrls(nextBlockedUrls, blockedUrls);
+    return { action: 'success', message: 'Padrão adicionado.' };
+  });
+}
+
+export function removeBlockRule(ruleId) {
+  return serialize(async () => {
+    const blockedUrls = await getBlockedUrls();
+    const nextBlockedUrls = blockedUrls.filter((urlObj) => urlObj.ruleId !== ruleId);
+    if (nextBlockedUrls.length === blockedUrls.length) {
+      return { action: 'error', message: 'Esse padrão não está mais na lista.' };
+    }
+
+    await saveBlockedUrls(nextBlockedUrls, blockedUrls);
+    return { action: 'success', message: 'Padrão removido.' };
+  });
 }
 
 async function updateRules(blockedUrls) {
@@ -42,22 +60,78 @@ async function updateRules(blockedUrls) {
     priority: 1,
     action: { type: 'block' },
     condition: {
-      urlFilter: urlObj.urlPattern,
+      regexFilter: urlObj.urlPattern,
       resourceTypes: ['main_frame'],
-      excludedInitiatorDomains: [chrome.runtime.getURL('').replace(/\/$/, '')],
     },
   }));
 
   // Remover TUDO que existe hoje, não só os ids da lista nova: é o que impede
   // uma regra órfã de continuar valendo depois de a URL sair da lista.
   const existing = await chrome.declarativeNetRequest.getDynamicRules();
+  if (areRulesCurrent(existing, rules)) return;
+
   await chrome.declarativeNetRequest.updateDynamicRules({
     removeRuleIds: existing.map((rule) => rule.id),
     addRules: rules,
   });
 }
 
-function isValidRegex(pattern) {
+function areRulesCurrent(existingRules, desiredRules) {
+  if (existingRules.length !== desiredRules.length) return false;
+
+  const existingById = new Map(existingRules.map((rule) => [rule.id, rule]));
+  return desiredRules.every((desiredRule) => {
+    const existingRule = existingById.get(desiredRule.id);
+    if (existingRule === undefined || existingRule.priority !== desiredRule.priority) return false;
+    return areObjectsEqual(existingRule.action, desiredRule.action) &&
+      areObjectsEqual(existingRule.condition, desiredRule.condition);
+  });
+}
+
+function areObjectsEqual(existing, desired) {
+  if (existing === null || typeof existing !== 'object') return false;
+
+  const existingKeys = Object.keys(existing).sort();
+  const desiredKeys = Object.keys(desired).sort();
+  if (existingKeys.length !== desiredKeys.length) return false;
+  if (!existingKeys.every((key, index) => key === desiredKeys[index])) return false;
+
+  return desiredKeys.every((key) => {
+    const desiredValue = desired[key];
+    const existingValue = existing[key];
+    if (!Array.isArray(desiredValue)) return existingValue === desiredValue;
+    return Array.isArray(existingValue) &&
+      existingValue.length === desiredValue.length &&
+      existingValue.every((value, index) => value === desiredValue[index]);
+  });
+}
+
+async function saveBlockedUrls(nextBlockedUrls, previousBlockedUrls) {
+  await updateRules(nextBlockedUrls);
+  try {
+    await chrome.storage.sync.set({ [STORAGE_KEY]: nextBlockedUrls });
+  } catch (error) {
+    await updateRules(previousBlockedUrls);
+    throw error;
+  }
+}
+
+function serialize(operation) {
+  const result = rulesQueue.then(operation, operation);
+  rulesQueue = result.catch(() => {});
+  return result;
+}
+
+async function isValidRegex(pattern) {
+  if (typeof chrome.declarativeNetRequest.isRegexSupported === 'function') {
+    try {
+      const result = await chrome.declarativeNetRequest.isRegexSupported({ regex: pattern });
+      return result.isSupported === true;
+    } catch {
+      return false;
+    }
+  }
+
   try {
     new RegExp(pattern);
     return true;

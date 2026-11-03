@@ -62,6 +62,13 @@ check(
 );
 check('o nome do package é o da extensão', pkg.name === 'content-manager-extension', pkg.name);
 
+process.stdout.write('\npermissões:\n');
+check(
+  'as permissões são as três mínimas declaradas',
+  JSON.stringify(manifest.permissions) === JSON.stringify(['storage', 'declarativeNetRequest', 'scripting']),
+  JSON.stringify(manifest.permissions ?? []),
+);
+
 process.stdout.write('\narquivos apontados pelo manifesto:\n');
 checkFile('o service worker existe', manifest.background && manifest.background.service_worker);
 checkFile('o popup existe', manifest.action && manifest.action.default_popup);
@@ -84,11 +91,11 @@ for (const entry of manifest.web_accessible_resources || []) {
   for (const file of entry.resources || []) checkFile(`o recurso ${file} existe`, file);
 }
 check(
-  'o filtro do YouTube está declarado com os dois scripts, na ordem',
+  'o filtro do YouTube está declarado com os três scripts, na ordem',
   (manifest.content_scripts || []).some(
     (entry) =>
       JSON.stringify(entry.js) ===
-      JSON.stringify(['src/content/age-core.js', 'src/content/age-filter.js']),
+      JSON.stringify(['src/content/age-core.js', 'src/content/keyword-core.js', 'src/content/age-filter.js']),
   ),
 );
 

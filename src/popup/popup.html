@@ -1,92 +1,357 @@
 <!DOCTYPE html>
-<html>
+<html lang="pt-BR">
 <head>
   <meta charset="utf-8">
-  <title>Bloqueador de URLs</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Controle de foco</title>
   <style>
+    :root {
+      color-scheme: light;
+      --ink: #1c2740;
+      --muted: #69758c;
+      --line: #e7ebf3;
+      --surface: #fff;
+      --accent: #4c5fe3;
+      --accent-dark: #394bc7;
+      --green: #13856b;
+      --red: #bb3e4b;
+    }
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
     body {
-      font-family: Arial, sans-serif;
-      width: 320px;
-      padding: 16px;
+      width: 390px;
+      max-height: 600px;
+      overflow-y: auto;
       margin: 0;
-      background-color: #f4f4f9;
-      box-sizing: border-box;
+      background: #f2f5fa;
+      color: var(--ink);
+      font: 13px/1.45 Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }
-    h1 { font-size: 17px; margin: 0 0 8px; }
-    input[type="text"] {
-      width: 100%;
-      padding: 8px;
-      margin: 6px 0;
-      border: 1px solid #ccc;
-      border-radius: 4px;
-      box-sizing: border-box;
-      font-size: 12px;
+    .app-shell { padding: 18px; }
+    .topbar { display: flex; align-items: center; gap: 11px; margin: 1px 2px 16px; }
+    .brand-mark {
+      display: grid;
+      width: 40px;
+      height: 40px;
+      flex: 0 0 auto;
+      place-items: center;
+      border: 1px solid #dce2ff;
+      border-radius: 13px;
+      background: #e9edff;
+      color: var(--accent);
+      font-size: 20px;
+      font-weight: 800;
     }
-    label { font-size: 12px; color: #444; display: block; margin-top: 8px; }
-    button {
-      width: 100%;
-      padding: 9px;
-      margin: 8px 0 0;
-      background-color: #4CAF50;
-      color: white;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 13px;
-      transition: background-color 0.3s ease;
+    .brand-copy { min-width: 0; flex: 1; }
+    .eyebrow { margin: 0 0 1px; color: var(--muted); font-size: 9px; font-weight: 750; letter-spacing: .13em; }
+    h1 { margin: 0; font-size: 17px; font-weight: 750; letter-spacing: -.02em; }
+    .privacy-tag {
+      padding: 5px 8px;
+      border: 1px solid #d9eee7;
+      border-radius: 999px;
+      background: #eef8f4;
+      color: #24775f;
+      font-size: 10px;
+      font-weight: 650;
     }
-    button:hover { background-color: #45a049; }
-    ul { list-style-type: none; padding: 0; margin: 6px 0; }
-    li {
-      background: #fff;
-      margin: 6px 0;
-      padding: 8px;
-      border: 1px solid #ddd;
-      border-radius: 4px;
-      font-size: 12px;
-      word-break: break-all;
+    .panel {
+      margin-bottom: 12px;
+      padding: 15px;
+      border: 1px solid #e9edf4;
+      border-radius: 16px;
+      background: var(--surface);
+      box-shadow: 0 5px 18px rgb(31 46 82 / 5%);
     }
-    .remove-btn {
-      background-color: #e74c3c;
-      padding: 4px 8px;
+    .section-head { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 14px; }
+    .section-index {
+      display: grid;
+      width: 25px;
+      height: 25px;
+      flex: 0 0 auto;
+      place-items: center;
+      border-radius: 8px;
+      background: #f0f2ff;
+      color: var(--accent);
+      font-size: 10px;
+      font-weight: 750;
+    }
+    h2 { margin: 0; font-size: 13px; font-weight: 750; }
+    .section-description { margin: 2px 0 0; color: var(--muted); font-size: 11px; }
+    .field-label { display: block; margin-bottom: 6px; color: #3d4960; font-size: 11px; font-weight: 650; }
+    .entry-row { display: flex; gap: 7px; }
+    input[type="text"], input[type="number"] {
+      min-width: 0;
+      border: 1px solid #dce2ec;
+      border-radius: 9px;
+      outline: none;
+      background: #fbfcfe;
+      color: var(--ink);
+      font: inherit;
+      transition: border-color .15s ease, box-shadow .15s ease, background .15s ease;
+    }
+    input[type="text"] { width: 100%; padding: 9px 10px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 11px; }
+    input[type="number"] { width: 62px; padding: 7px 8px; text-align: center; }
+    input[type="text"]:focus, input[type="number"]:focus { border-color: #8491f2; background: #fff; box-shadow: 0 0 0 3px rgb(76 95 227 / 13%); }
+    input:disabled { cursor: wait; opacity: .65; }
+    button { border: 0; font: inherit; cursor: pointer; transition: background .15s ease, transform .15s ease; }
+    button:focus-visible { outline: 3px solid rgb(76 95 227 / 28%); outline-offset: 2px; }
+    button:disabled { cursor: wait; opacity: .65; }
+    .primary-button {
+      display: inline-flex;
+      flex: 0 0 auto;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      padding: 0 11px;
+      border-radius: 9px;
+      background: var(--accent);
+      color: #fff;
       font-size: 11px;
-      width: auto;
-      display: block;
-      margin-top: 6px;
+      font-weight: 700;
     }
-    .remove-btn:hover { background-color: #c0392b; }
-    .message {
-      margin: 8px 0;
-      padding: 8px;
-      border-radius: 4px;
+    .primary-button:hover { background: var(--accent-dark); }
+    .plus { font-size: 16px; font-weight: 400; line-height: 1; }
+    .field-hint { margin: 6px 0 0; color: var(--muted); font-size: 10px; line-height: 1.45; }
+    .field-hint code { color: #4b5793; font-size: 10px; }
+    .message { margin: 10px 0 0; padding: 8px 10px; border: 1px solid transparent; border-radius: 9px; font-size: 11px; }
+    .message.error { border-color: #f1d3d6; background: #fff3f3; color: #9c3540; }
+    .message.success { border-color: #d5ebe2; background: #f0faf5; color: #27735d; }
+    .list-caption { display: flex; align-items: center; justify-content: space-between; margin: 14px 0 7px; color: #59657b; font-size: 10px; font-weight: 700; }
+    .count-badge { min-width: 21px; padding: 2px 6px; border-radius: 999px; background: #f0f2f7; color: #59657b; text-align: center; }
+    .blocked-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+    .blocked-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 8px; border: 1px solid var(--line); border-radius: 10px; background: #fcfdff; }
+    .blocked-pattern { min-width: 0; overflow-wrap: anywhere; color: #3d4960; font: 10px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace; }
+    .remove-button { padding: 6px 8px; border: 1px solid #f2dadd; border-radius: 7px; background: #fff5f5; color: var(--red); font-size: 10px; font-weight: 700; }
+    .remove-button:hover { background: #ffe8e9; }
+    .empty-state { display: grid; min-height: 61px; place-content: center; justify-items: center; border: 1px dashed #dfe4ed; border-radius: 10px; color: #7b879b; }
+    .empty-state p { margin: 2px 0 0; font-size: 10px; }
+    .empty-mark { color: #9aa5b8; font-size: 18px; line-height: 1; }
+    .setting-row { position: relative; display: flex; align-items: center; gap: 12px; padding: 10px 0; cursor: pointer; }
+    .setting-row + .setting-row { border-top: 1px solid #f0f2f6; }
+    .setting-copy { min-width: 0; flex: 1; }
+    .setting-title { display: block; color: #303d54; font-size: 11px; font-weight: 700; }
+    .setting-description { display: block; margin-top: 2px; color: var(--muted); font-size: 10px; }
+    .setting-control { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); clip-path: inset(50%); white-space: nowrap; }
+    .switch-indicator { position: relative; width: 38px; height: 22px; flex: 0 0 auto; border-radius: 999px; background: #c7cfdd; transition: background .18s ease, opacity .18s ease; }
+    .switch-indicator::after { position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgb(20 30 55 / 20%); content: ""; transition: transform .18s ease; }
+    .setting-control:checked + .switch-indicator { background: var(--green); }
+    .setting-control:checked + .switch-indicator::after { transform: translateX(16px); }
+    .setting-control:focus-visible + .switch-indicator { outline: 3px solid rgb(76 95 227 / 27%); outline-offset: 2px; }
+    .setting-control:disabled + .switch-indicator { cursor: wait; opacity: .65; }
+    .age-limit-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 11px 0; border-top: 1px solid #f0f2f6; }
+    .age-limit-row .field-label { margin: 0; }
+    .age-limit-row .field-hint { margin-top: 2px; }
+    .number-field { display: flex; align-items: center; gap: 6px; color: #59657b; font-size: 11px; font-weight: 650; }
+    .scope-note { margin: 8px 0 0; padding: 8px 9px; border-radius: 8px; background: #f6f8fc; color: #6c7890; font-size: 10px; line-height: 1.45; }
+    .badge-list { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; }
+    .badge {
+      display: inline-flex;
+      max-width: 100%;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 5px 4px 10px;
+      border: 1px solid #dce2ff;
+      border-radius: 999px;
+      background: #eef1ff;
+      color: #3d4960;
+      font-size: 10px;
+      font-weight: 650;
+    }
+    .badge-remove {
+      display: grid;
+      width: 15px;
+      height: 15px;
+      flex: 0 0 auto;
+      place-items: center;
+      padding: 0;
+      border: 0;
+      border-radius: 50%;
+      background: transparent;
+      color: #66739b;
       font-size: 12px;
-      display: none;
+      line-height: 1;
     }
-    .message.error { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
-    .message.ok { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
-    hr { border: none; border-top: 1px solid #ddd; margin: 18px 0 0; }
-    .hint { font-size: 11px; color: #777; margin: 2px 0 0; line-height: 1.4; }
+    .badge-remove:hover { background: #ffd9dd; color: var(--red); }
+    .badge-empty { margin: 6px 0 0; color: #8a94a8; font-size: 10px; }
+    .suggestion-list { display: grid; max-height: 168px; gap: 4px; margin: 8px 0 0; padding: 0; overflow-y: auto; }
+    .suggestion { display: flex; width: 100%; align-items: center; gap: 8px; padding: 7px 8px; border: 1px solid #e7ebf3; border-radius: 9px; background: #fcfdff; text-align: left; }
+    .suggestion:hover { border-color: #c9d1f7; background: #f5f7ff; }
+    .suggestion-avatar, .allowed-avatar { width: 24px; height: 24px; flex: 0 0 auto; border-radius: 50%; background: #eef1ff; object-fit: cover; }
+    .avatar-fallback, .allowed-avatar-fallback { display: grid; width: 24px; height: 24px; flex: 0 0 auto; place-items: center; border-radius: 50%; background: #eef1ff; color: var(--accent); font-size: 11px; font-weight: 750; }
+    .suggestion-copy { display: grid; min-width: 0; }
+    .suggestion-name { overflow: hidden; color: #303d54; font-size: 11px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+    .suggestion-handle { color: var(--muted); font-size: 9px; }
+    .link-button { margin-top: 8px; padding: 0; border: 0; background: transparent; color: var(--accent); font-size: 10px; font-weight: 650; text-decoration: underline; }
+    .link-button:hover { color: var(--accent-dark); }
+    .allowed-badge { gap: 6px; padding: 3px 5px 3px 4px; }
+    .allowed-avatar, .allowed-avatar-fallback { width: 18px; height: 18px; font-size: 9px; }
+    .allowed-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .footer-note { margin: 2px 4px 0; color: #8390a4; font-size: 9px; text-align: center; }
+    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition-duration: .01ms !important; } }
   </style>
 </head>
 <body>
-  <h1>Bloqueador de URLs</h1>
-  <input type="text" id="url" placeholder="Padrão de URL para bloquear">
-  <button id="blockUrl">Bloquear URL</button>
-  <div id="message" class="message error"></div>
-  <ul id="blockedUrlsList"></ul>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand-mark" aria-hidden="true">✓</div>
+      <div class="brand-copy">
+        <p class="eyebrow">CONTENT MANAGER</p>
+        <h1>Controle de foco</h1>
+      </div>
+      <span class="privacy-tag">Privado</span>
+    </header>
 
-  <hr>
+    <main>
+      <section class="panel" aria-labelledby="sites-title">
+        <div class="section-head">
+          <span class="section-index" aria-hidden="true">01</span>
+          <div>
+            <h2 id="sites-title">Sites bloqueados</h2>
+            <p class="section-description">Escolha quais páginas você quer evitar.</p>
+          </div>
+        </div>
 
-  <h1>Filtro do feed</h1>
-  <label for="hideOldVideos">
-    <input type="checkbox" id="hideOldVideos" checked> Esconder vídeos com mais de 3 dias
-  </label>
-  <label for="hideGamesAndAds">
-    <input type="checkbox" id="hideGamesAndAds" checked> Esconder jogos e anúncios do feed
-  </label>
-  <p class="hint">Vídeos com 4 dias ou mais, jogos e anúncios somem da home, inscrições, buscas, canais e recomendações. Shorts, histórico e listas salvas não são afetados.</p>
-  <div id="filterMessage" class="message"></div>
+        <form id="blockForm" novalidate>
+          <label class="field-label" for="url">Padrão de URL (expressão regular)</label>
+          <div class="entry-row">
+            <input type="text" id="url" name="url" placeholder=".*youtube.com/shorts.*" autocomplete="off" spellcheck="false" maxlength="2000">
+            <button class="primary-button" id="blockUrl" type="submit"><span class="plus" aria-hidden="true">+</span>Adicionar</button>
+          </div>
+          <p class="field-hint">Exemplo: <code>.*tiktok.*</code> bloqueia URLs que contenham “tiktok”.</p>
+        </form>
 
+        <p id="message" class="message" role="status" aria-live="polite" hidden></p>
+        <div class="list-caption"><span>Regras ativas</span><span id="blockedCount" class="count-badge">0</span></div>
+        <ul id="blockedUrlsList" class="blocked-list" hidden></ul>
+        <div id="emptyBlocked" class="empty-state">
+          <span class="empty-mark" aria-hidden="true">⌁</span>
+          <p>Nenhum site bloqueado ainda.</p>
+        </div>
+      </section>
+
+      <section class="panel" aria-labelledby="feed-title">
+        <div class="section-head">
+          <span class="section-index" aria-hidden="true">02</span>
+          <div>
+            <h2 id="feed-title">Filtro do YouTube</h2>
+            <p class="section-description">Ajuste o que aparece nas recomendações.</p>
+          </div>
+        </div>
+
+        <label class="setting-row" for="hideOldVideos">
+          <span class="setting-copy">
+            <span class="setting-title">Ocultar vídeos antigos</span>
+            <span class="setting-description">Filtra vídeos acima do limite escolhido.</span>
+          </span>
+          <input class="setting-control" type="checkbox" id="hideOldVideos" checked disabled>
+          <span class="switch-indicator" aria-hidden="true"></span>
+        </label>
+
+        <div class="age-limit-row">
+          <div>
+            <label class="field-label" for="maxAgeDays">Idade máxima</label>
+            <p class="field-hint">De 1 a 365 dias.</p>
+          </div>
+          <div class="number-field">
+            <input type="number" id="maxAgeDays" min="1" max="365" step="1" value="3" disabled>
+            <span>dias</span>
+          </div>
+        </div>
+
+        <label class="setting-row" for="hideGamesAndAds">
+          <span class="setting-copy">
+            <span class="setting-title">Ocultar jogos e anúncios</span>
+            <span class="setting-description">Remove esses cards do feed e da busca.</span>
+          </span>
+          <input class="setting-control" type="checkbox" id="hideGamesAndAds" checked disabled>
+          <span class="switch-indicator" aria-hidden="true"></span>
+        </label>
+
+        <p class="scope-note">Shorts, histórico e listas salvas não são afetados. As mudanças são aplicadas sem recarregar a página.</p>
+        <p id="filterMessage" class="message" role="status" aria-live="polite" hidden></p>
+      </section>
+
+      <section class="panel" aria-labelledby="keywords-title">
+        <div class="section-head">
+          <span class="section-index" aria-hidden="true">03</span>
+          <div>
+            <h2 id="keywords-title">Palavras-chave e canais</h2>
+            <p class="section-description">Oculta vídeos cujo título ou canal combine com as listas.</p>
+          </div>
+        </div>
+
+        <label class="setting-row" for="blockKeywords">
+          <span class="setting-copy">
+            <span class="setting-title">Bloquear por palavras-chave e canais</span>
+            <span class="setting-description">A lista já vem com os termos de IA (ChatGPT, Claude, Gemini…); edite à vontade.</span>
+          </span>
+          <input class="setting-control" type="checkbox" id="blockKeywords" disabled>
+          <span class="switch-indicator" aria-hidden="true"></span>
+        </label>
+
+        <form id="keywordForm" novalidate>
+          <label class="field-label" for="keywordInput">Palavra-chave no título</label>
+          <div class="entry-row">
+            <input type="text" id="keywordInput" name="keyword" placeholder="ex.: chatgpt" autocomplete="off" spellcheck="false" maxlength="60">
+            <button class="primary-button" id="addKeyword" type="submit"><span class="plus" aria-hidden="true">+</span>Adicionar</button>
+          </div>
+          <p class="field-hint">Enter adiciona. A comparação ignora acentos, maiúsculas e pontuação — “GPT-4” e “gpt 4” são a mesma.</p>
+        </form>
+
+        <div class="list-caption"><span>Palavras-chave</span><span id="keywordCount" class="count-badge">0</span></div>
+        <div id="keywordBadges" class="badge-list"></div>
+        <p id="keywordEmpty" class="badge-empty">Nenhuma palavra-chave na lista.</p>
+
+        <form id="channelForm" novalidate>
+          <label class="field-label" for="channelInput">Nome do canal</label>
+          <div class="entry-row">
+            <input type="text" id="channelInput" name="channel" placeholder="ex.: Canal de tech" autocomplete="off" spellcheck="false" maxlength="60">
+            <button class="primary-button" id="addChannel" type="submit"><span class="plus" aria-hidden="true">+</span>Adicionar</button>
+          </div>
+          <p class="field-hint">Enter adiciona. Basta conter o nome: “Canal X” bloqueia o card “Canal X - Ao vivo”.</p>
+        </form>
+
+        <div class="list-caption"><span>Canais</span><span id="channelCount" class="count-badge">0</span></div>
+        <div id="channelBadges" class="badge-list"></div>
+        <p id="channelEmpty" class="badge-empty">Nenhum canal na lista.</p>
+
+        <p class="scope-note">As listas só agem com o interruptor ligado. Mesmo mecanismo dos vídeos antigos: o card é ocultado na hora, sem recarregar; Shorts, histórico e listas salvas ficam de fora. Para bloquear um canal, adicione o nome na lista acima.</p>
+        <p id="keywordMessage" class="message" role="status" aria-live="polite" hidden></p>
+      </section>
+
+      <section class="panel" aria-labelledby="allowed-title">
+        <div class="section-head">
+          <span class="section-index" aria-hidden="true">04</span>
+          <div>
+            <h2 id="allowed-title">Sempre recomendados</h2>
+            <p class="section-description">Canais que nunca são filtrados, nem por palavra-chave nem pela idade.</p>
+          </div>
+        </div>
+
+        <form id="allowForm" novalidate>
+          <label class="field-label" for="allowInput">Adicionar das suas inscrições</label>
+          <div class="entry-row">
+            <input type="text" id="allowInput" name="allow" placeholder="Digite o nome do canal" autocomplete="off" spellcheck="false" maxlength="60">
+            <button class="primary-button" id="addAllowed" type="submit"><span class="plus" aria-hidden="true">+</span>Adicionar</button>
+          </div>
+          <p class="field-hint">Digite o nome e escolha a sugestão. Enter adiciona a primeira.</p>
+        </form>
+
+        <div id="allowSuggestions" class="suggestion-list" hidden></div>
+        <p id="allowHint" class="field-hint"></p>
+        <button class="link-button" id="openChannelsPage" type="button">Abrir youtube.com/feed/channels</button>
+
+        <div class="list-caption"><span>Sempre recomendados</span><span id="allowedCount" class="count-badge">0</span></div>
+        <div id="allowedBadges" class="badge-list"></div>
+        <p id="allowedEmpty" class="badge-empty">Nenhum canal protegido.</p>
+
+        <p id="allowMessage" class="message" role="status" aria-live="polite" hidden></p>
+      </section>
+    </main>
+
+    <p class="footer-note">Suas preferências ficam no armazenamento do navegador.</p>
+  </div>
+  <script src="../content/keyword-core.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

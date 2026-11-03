@@ -1,96 +1,523 @@
-/**
- * Popup: bloqueio de URLs e interruptores do filtro do feed.
- *
- * Script clássico — o popup não carrega módulos ES. Toda a lógica de verdade
- * vive no service worker, que é também quem guarda as preferências.
- */
-document.addEventListener('DOMContentLoaded', () => {
-  initialize();
-});
+/** Popup da extensão. O service worker valida, aplica e persiste as alterações. */
+const DEFAULT_SETTINGS = {
+  hideOldVideos: true,
+  hideGamesAndAds: true,
+  maxAgeDays: 3,
+  blockKeywords: false,
+  blockedKeywords: null,
+  blockedChannels: null,
+  allowedChannels: [],
+};
+const MIN_AGE_DAYS = 1;
+const MAX_AGE_DAYS = 365;
+const MAX_SUGGESTIONS = 8;
 
-function initialize() {
-  document.getElementById('blockUrl').addEventListener('click', handleBlockUrl);
+let savedSettings = { ...DEFAULT_SETTINGS };
+let channelCatalog = [];
+let allowMatches = [];
+
+document.addEventListener('DOMContentLoaded', initialize);
+
+async function initialize() {
+  document.getElementById('blockForm').addEventListener('submit', handleBlockUrl);
   document.getElementById('hideOldVideos').addEventListener('change', handleHideOldVideos);
   document.getElementById('hideGamesAndAds').addEventListener('change', handleHideGamesAndAds);
-  loadBlockedUrls();
-  loadStatus();
+  document.getElementById('maxAgeDays').addEventListener('change', handleMaxAgeDays);
+  document.getElementById('blockKeywords').addEventListener('change', handleBlockKeywords);
+  document.getElementById('keywordForm').addEventListener('submit', handleAddKeyword);
+  document.getElementById('channelForm').addEventListener('submit', handleAddChannel);
+  document.getElementById('allowForm').addEventListener('submit', handleAddAllowed);
+  document.getElementById('allowInput').addEventListener('input', renderAllowSuggestions);
+  document.getElementById('openChannelsPage').addEventListener('click', () => {
+    chrome.tabs.create({ url: 'https://www.youtube.com/feed/channels' });
+  });
+
+  await Promise.all([loadBlockedUrls(), loadStatus(), loadChannelCatalog()]);
 }
 
 /* ------------------------------------------------------------------ bloqueio */
 
-async function handleBlockUrl() {
-  const url = document.getElementById('url').value;
-  const response = await chrome.runtime.sendMessage({ action: 'addBlockRule', url });
-  if (response) {
-    displayMessage('message', response.message, response.action !== 'success');
-    loadBlockedUrls();
+async function handleBlockUrl(event) {
+  event.preventDefault();
+  const input = document.getElementById('url');
+  const button = document.getElementById('blockUrl');
+  const url = input.value.trim();
+
+  if (!url) {
+    displayMessage('message', 'Digite uma expressão regular para bloquear.', true);
+    input.focus();
+    return;
+  }
+
+  button.disabled = true;
+  try {
+    const response = await sendMessage({ action: 'addBlockRule', url });
+    await refreshBlockedUrls();
+    input.value = '';
+    displayMessage('message', response.message, false);
+  } catch (error) {
+    displayMessage('message', error.message, true);
+  } finally {
+    button.disabled = false;
   }
 }
 
-function loadBlockedUrls() {
-  chrome.storage.sync.get({ blockedUrls: [] }, (data) => {
-    const list = document.getElementById('blockedUrlsList');
-    list.innerHTML = '';
-    data.blockedUrls.forEach((urlObj) => list.appendChild(createBlockedUrlListItem(urlObj)));
-  });
+async function loadBlockedUrls() {
+  try {
+    await refreshBlockedUrls();
+  } catch (error) {
+    displayMessage('message', error.message, true);
+  }
+}
+
+async function refreshBlockedUrls() {
+  const response = await sendMessage({ action: 'getBlockedUrls' });
+  if (response.action !== 'blockedUrls' || !Array.isArray(response.blockedUrls)) {
+    throw new Error('Não foi possível carregar a lista de sites bloqueados.');
+  }
+
+  const blockedUrls = response.blockedUrls;
+  const list = document.getElementById('blockedUrlsList');
+  list.innerHTML = '';
+  blockedUrls.forEach((urlObj) => list.appendChild(createBlockedUrlListItem(urlObj)));
+
+  document.getElementById('blockedCount').textContent = String(blockedUrls.length);
+  list.hidden = blockedUrls.length === 0;
+  document.getElementById('emptyBlocked').hidden = blockedUrls.length > 0;
 }
 
 function createBlockedUrlListItem(urlObj) {
   const li = document.createElement('li');
-  li.textContent = urlObj.urlPattern;
+  li.className = 'blocked-item';
 
-  const removeBtn = document.createElement('button');
-  removeBtn.textContent = 'Remove';
-  removeBtn.classList.add('remove-btn');
-  removeBtn.addEventListener('click', () => handleRemoveBlockRule(urlObj.ruleId));
+  const pattern = document.createElement('code');
+  pattern.className = 'blocked-pattern';
+  pattern.textContent = urlObj.urlPattern;
 
-  li.appendChild(removeBtn);
+  const removeButton = document.createElement('button');
+  removeButton.type = 'button';
+  removeButton.className = 'remove-button';
+  removeButton.textContent = 'Remover';
+  removeButton.setAttribute('aria-label', `Remover ${urlObj.urlPattern}`);
+  removeButton.addEventListener('click', () => handleRemoveBlockRule(urlObj.ruleId, removeButton));
+
+  li.appendChild(pattern);
+  li.appendChild(removeButton);
   return li;
 }
 
-async function handleRemoveBlockRule(ruleId) {
-  const response = await chrome.runtime.sendMessage({ action: 'removeBlockRule', ruleId });
-  if (response) {
-    displayMessage('message', response.message, response.action !== 'success');
-    loadBlockedUrls();
+async function handleRemoveBlockRule(ruleId, button) {
+  button.disabled = true;
+  try {
+    const response = await sendMessage({ action: 'removeBlockRule', ruleId });
+    await refreshBlockedUrls();
+    displayMessage('message', response.message, false);
+  } catch (error) {
+    button.disabled = false;
+    displayMessage('message', error.message, true);
   }
 }
 
 /* -------------------------------------------------------------------- filtro */
 
-/** Os dois interruptores refletem o que está gravado; ausente é ligado. */
 async function loadStatus() {
-  const status = await chrome.runtime.sendMessage({ action: 'status' });
-  if (!status || status.action !== 'status') return;
-  document.getElementById('hideOldVideos').checked = status.settings.hideOldVideos !== false;
-  document.getElementById('hideGamesAndAds').checked = status.settings.hideGamesAndAds !== false;
+  const controls = [
+    document.getElementById('hideOldVideos'),
+    document.getElementById('hideGamesAndAds'),
+    document.getElementById('maxAgeDays'),
+    document.getElementById('blockKeywords'),
+  ];
+  controls.forEach((control) => {
+    control.disabled = true;
+  });
+
+  try {
+    const status = await sendMessage({ action: 'status' });
+    if (status.action !== 'status' || !status.settings) {
+      throw new Error('Não foi possível carregar as preferências do filtro.');
+    }
+    savedSettings = { ...DEFAULT_SETTINGS, ...status.settings };
+    updateSettingsControls();
+  } catch (error) {
+    savedSettings = { ...DEFAULT_SETTINGS };
+    updateSettingsControls();
+    displayMessage('filterMessage', error.message, true);
+  } finally {
+    controls.forEach((control) => {
+      control.disabled = false;
+    });
+  }
 }
 
-/**
- * O filtro de idade vale na hora: a mudança é a própria preferência, e o
- * content script de cada aba do YouTube escuta o `storage`.
- */
+function updateSettingsControls() {
+  document.getElementById('hideOldVideos').checked = savedSettings.hideOldVideos !== false;
+  document.getElementById('hideGamesAndAds').checked = savedSettings.hideGamesAndAds !== false;
+  document.getElementById('maxAgeDays').value = String(savedSettings.maxAgeDays);
+  document.getElementById('blockKeywords').checked = savedSettings.blockKeywords === true;
+  renderKeywordList();
+  renderChannelList();
+  renderAllowedChannels();
+}
+
 async function handleHideOldVideos() {
-  const checked = document.getElementById('hideOldVideos').checked;
-  await chrome.runtime.sendMessage({ action: 'saveSettings', patch: { hideOldVideos: checked } });
-  displayMessage('filterMessage', checked ? 'Filtro ativado.' : 'Filtro desativado.', false);
+  const control = document.getElementById('hideOldVideos');
+  const checked = control.checked;
+  const message = checked ? 'Filtro de vídeos antigos ativado.' : 'Filtro de vídeos antigos desativado.';
+  await persistSetting('hideOldVideos', checked, control, message);
 }
 
-/**
- * Jogo e anúncio não têm data: o interruptor próprio decide se somem, e o
- * content script reage ao `storage` igual ao filtro de idade.
- */
 async function handleHideGamesAndAds() {
-  const checked = document.getElementById('hideGamesAndAds').checked;
-  await chrome.runtime.sendMessage({ action: 'saveSettings', patch: { hideGamesAndAds: checked } });
-  displayMessage('filterMessage', checked ? 'Jogos e anúncios ocultos.' : 'Jogos e anúncios visíveis.', false);
+  const control = document.getElementById('hideGamesAndAds');
+  const checked = control.checked;
+  const message = checked ? 'Jogos e anúncios serão ocultados.' : 'Jogos e anúncios ficarão visíveis.';
+  await persistSetting('hideGamesAndAds', checked, control, message);
+}
+
+async function handleMaxAgeDays() {
+  const control = document.getElementById('maxAgeDays');
+  const maxAgeDays = Number(control.value);
+  if (!Number.isInteger(maxAgeDays) || maxAgeDays < MIN_AGE_DAYS || maxAgeDays > MAX_AGE_DAYS) {
+    control.value = String(savedSettings.maxAgeDays);
+    displayMessage('filterMessage', `Escolha um número inteiro entre ${MIN_AGE_DAYS} e ${MAX_AGE_DAYS} dias.`, true);
+    return;
+  }
+
+  await persistSetting('maxAgeDays', maxAgeDays, control, `Limite salvo: ${maxAgeDays} dias.`);
+}
+
+async function handleBlockKeywords() {
+  const control = document.getElementById('blockKeywords');
+  const checked = control.checked;
+  const message = checked
+    ? 'Palavras-chave e canais serão bloqueados nos títulos e canais dos vídeos.'
+    : 'Bloqueio por palavras-chave e canais desativado.';
+  await persistSetting('blockKeywords', checked, control, message);
+}
+
+/* ------------------------------------------------------- palavras e canais */
+
+async function handleAddKeyword(event) {
+  event.preventDefault();
+  await addListItem('keywordInput', 'blockedKeywords', 'Palavra-chave');
+}
+
+async function handleAddChannel(event) {
+  event.preventDefault();
+  await addListItem('channelInput', 'blockedChannels', 'Canal');
+}
+
+/** Enter (ou o botão) adiciona à lista; repetido e vazio não entram. */
+async function addListItem(inputId, settingsKey, label) {
+  const input = document.getElementById(inputId);
+  const value = input.value.trim();
+  if (!value) {
+    displayMessage('keywordMessage', `Digite o ${label.toLowerCase()} a adicionar.`, true);
+    input.focus();
+    return;
+  }
+
+  const current = Array.isArray(savedSettings[settingsKey]) ? savedSettings[settingsKey] : [];
+  if (current.some((item) => item.toLowerCase() === value.toLowerCase())) {
+    displayMessage('keywordMessage', `“${value}” já está na lista.`, true);
+    return;
+  }
+
+  const saved = await persistList(settingsKey, [...current, value], `${value} adicionado.`);
+  if (saved) input.value = '';
+}
+
+async function removeListItem(settingsKey, value) {
+  const current = Array.isArray(savedSettings[settingsKey]) ? savedSettings[settingsKey] : [];
+  await persistList(settingsKey, current.filter((item) => item !== value), `${value} removido.`);
+}
+
+/** Salva a lista inteira e devolve as badges ao que está guardado. */
+async function persistList(settingsKey, nextValues, successMessage) {
+  try {
+    const response = await sendMessage({ action: 'saveSettings', patch: { [settingsKey]: nextValues } });
+    if (response.action !== 'saveSettings' || response.ok !== true) {
+      throw new Error('Não foi possível salvar a lista.');
+    }
+    savedSettings = { ...savedSettings, ...response.settings };
+    renderKeywordList();
+    renderChannelList();
+    displayMessage('keywordMessage', successMessage, false);
+    return true;
+  } catch (error) {
+    renderKeywordList();
+    renderChannelList();
+    displayMessage('keywordMessage', error.message, true);
+    return false;
+  }
+}
+
+function renderKeywordList() {
+  const values = Array.isArray(savedSettings.blockedKeywords) ? savedSettings.blockedKeywords : [];
+  renderBadges('keywordBadges', 'keywordCount', 'keywordEmpty', values, 'blockedKeywords');
+}
+
+function renderChannelList() {
+  const values = Array.isArray(savedSettings.blockedChannels) ? savedSettings.blockedChannels : [];
+  renderBadges('channelBadges', 'channelCount', 'channelEmpty', values, 'blockedChannels');
+}
+
+function renderBadges(containerId, countId, emptyId, values, settingsKey) {
+  const container = document.getElementById(containerId);
+  container.innerHTML = '';
+  values.forEach((value) => container.appendChild(createBadge(value, settingsKey)));
+
+  document.getElementById(countId).textContent = String(values.length);
+  document.getElementById(emptyId).hidden = values.length > 0;
+}
+
+/** A badge com o texto e o botão “×” que tira o item da lista. */
+function createBadge(value, settingsKey) {
+  const badge = document.createElement('span');
+  badge.className = 'badge';
+  badge.textContent = value;
+
+  const removeButton = document.createElement('button');
+  removeButton.type = 'button';
+  removeButton.className = 'badge-remove';
+  removeButton.textContent = '×';
+  removeButton.setAttribute('aria-label', `Remover ${value}`);
+  removeButton.addEventListener('click', async () => {
+    await removeListItem(settingsKey, value);
+  });
+
+  badge.appendChild(removeButton);
+  return badge;
+}
+
+async function persistSetting(key, value, control, successMessage) {
+  const previousValue = savedSettings[key];
+  control.disabled = true;
+  try {
+    const response = await sendMessage({ action: 'saveSettings', patch: { [key]: value } });
+    if (response.action !== 'saveSettings' || response.ok !== true) {
+      throw new Error('Não foi possível salvar esta preferência.');
+    }
+
+    savedSettings = { ...savedSettings, ...response.settings };
+    displayMessage('filterMessage', successMessage, false);
+  } catch (error) {
+    savedSettings[key] = previousValue;
+    if (control.type === 'checkbox') control.checked = previousValue;
+    else control.value = String(previousValue);
+    displayMessage('filterMessage', error.message, true);
+  } finally {
+    control.disabled = false;
+  }
+}
+
+/* --------------------------------------------------- sempre recomendados */
+
+async function loadChannelCatalog() {
+  try {
+    const response = await sendMessage({ action: 'getChannelCatalog' });
+    if (response.action !== 'channelCatalog' || !response.catalog || !Array.isArray(response.catalog.channels)) {
+      throw new Error('Não foi possível carregar os canais inscritos.');
+    }
+    channelCatalog = response.catalog.channels;
+    document.getElementById('allowHint').textContent =
+      channelCatalog.length === 0
+        ? 'Nenhum canal coletado ainda. Abra a página de inscrições para a extensão guardar a lista.'
+        : `${channelCatalog.length} canais inscritos coletados. Digite o nome e escolha a sugestão.`;
+  } catch (error) {
+    channelCatalog = [];
+    displayMessage('allowMessage', error.message, true);
+  }
+}
+
+function normalizeChannelText(value) {
+  const core = typeof globalThis !== 'undefined' ? globalThis.YTIKeywordFilter : null;
+  const text = String(value ?? '').trim();
+  return core ? core.normalizeText(text) : text.toLowerCase();
+}
+
+function searchCatalog(needle) {
+  const matches = [];
+  for (const entry of channelCatalog) {
+    const name = normalizeChannelText(entry.name);
+    const handle = normalizeChannelText(String(entry.handle || '').replace(/^@/, ''));
+    if (name.includes(needle) || handle.includes(needle)) matches.push(entry);
+    if (matches.length >= MAX_SUGGESTIONS) break;
+  }
+  return matches;
+}
+
+/** A busca da allowlist: só as inscrições guardadas, sem chamada de rede. */
+function renderAllowSuggestions() {
+  const query = normalizeChannelText(document.getElementById('allowInput').value);
+  const container = document.getElementById('allowSuggestions');
+  allowMatches = query === '' ? [] : searchCatalog(query);
+  container.innerHTML = '';
+  container.hidden = allowMatches.length === 0;
+  allowMatches.forEach((entry) => container.appendChild(createSuggestion(entry)));
+}
+
+function createSuggestion(entry) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'suggestion';
+  button.appendChild(createChannelAvatar(entry, 'suggestion-avatar', 'avatar-fallback'));
+
+  const copy = document.createElement('span');
+  copy.className = 'suggestion-copy';
+  const name = document.createElement('span');
+  name.className = 'suggestion-name';
+  name.textContent = entry.name;
+  copy.appendChild(name);
+  if (entry.handle) {
+    const handle = document.createElement('span');
+    handle.className = 'suggestion-handle';
+    handle.textContent = entry.handle;
+    copy.appendChild(handle);
+  }
+  button.appendChild(copy);
+
+  button.addEventListener('click', async () => {
+    await addAllowedChannel(entry);
+  });
+  return button;
+}
+
+async function handleAddAllowed(event) {
+  event.preventDefault();
+  if (allowMatches.length === 0) renderAllowSuggestions();
+  if (allowMatches.length === 0) {
+    displayMessage('allowMessage', 'Nenhum canal encontrado nas suas inscrições com esse nome.', true);
+    return;
+  }
+  await addAllowedChannel(allowMatches[0]);
+}
+
+async function addAllowedChannel(entry) {
+  const current = Array.isArray(savedSettings.allowedChannels) ? savedSettings.allowedChannels : [];
+  if (current.some((item) => sameChannel(item, entry))) {
+    displayMessage('allowMessage', `“${entry.name}” já está na lista.`, true);
+    return;
+  }
+
+  const next = [...current, { name: entry.name, handle: entry.handle || '' }];
+  const saved = await persistAllowed(next, `${entry.name} sempre será recomendado.`);
+  if (saved) {
+    document.getElementById('allowInput').value = '';
+    renderAllowSuggestions();
+  }
+}
+
+function sameChannel(a, b) {
+  const handleA = String(a.handle || '').replace(/^@/, '').toLowerCase();
+  const handleB = String(b.handle || '').replace(/^@/, '').toLowerCase();
+  if (handleA !== '' && handleB !== '') return handleA === handleB;
+  return normalizeChannelText(a.name) === normalizeChannelText(b.name);
+}
+
+async function persistAllowed(nextValues, successMessage) {
+  try {
+    const response = await sendMessage({ action: 'saveSettings', patch: { allowedChannels: nextValues } });
+    if (response.action !== 'saveSettings' || response.ok !== true) {
+      throw new Error('Não foi possível salvar a lista.');
+    }
+    savedSettings = { ...savedSettings, ...response.settings };
+    renderAllowedChannels();
+    displayMessage('allowMessage', successMessage, false);
+    return true;
+  } catch (error) {
+    renderAllowedChannels();
+    displayMessage('allowMessage', error.message, true);
+    return false;
+  }
+}
+
+/** As badges da allowlist: foto (do catálogo) + nome + o “×” que remove. */
+function renderAllowedChannels() {
+  const values = Array.isArray(savedSettings.allowedChannels) ? savedSettings.allowedChannels : [];
+  const container = document.getElementById('allowedBadges');
+  container.innerHTML = '';
+  values.forEach((entry) => container.appendChild(createAllowedBadge(entry)));
+
+  document.getElementById('allowedCount').textContent = String(values.length);
+  document.getElementById('allowedEmpty').hidden = values.length > 0;
+}
+
+function createAllowedBadge(entry) {
+  const badge = document.createElement('span');
+  badge.className = 'badge allowed-badge';
+  badge.appendChild(createChannelAvatar(entry, 'allowed-avatar', 'allowed-avatar-fallback'));
+
+  const name = document.createElement('span');
+  name.className = 'allowed-name';
+  name.textContent = entry.name;
+  badge.appendChild(name);
+
+  const removeButton = document.createElement('button');
+  removeButton.type = 'button';
+  removeButton.className = 'badge-remove';
+  removeButton.textContent = '×';
+  removeButton.setAttribute('aria-label', `Remover ${entry.name}`);
+  removeButton.addEventListener('click', async () => {
+    const current = Array.isArray(savedSettings.allowedChannels) ? savedSettings.allowedChannels : [];
+    await persistAllowed(
+      current.filter((item) => !sameChannel(item, entry)),
+      `${entry.name} removido dos sempre recomendados.`,
+    );
+  });
+  badge.appendChild(removeButton);
+  return badge;
+}
+
+function createChannelAvatar(entry, imageClass, fallbackClass) {
+  const url = avatarFor(entry);
+  if (url !== '') {
+    const image = document.createElement('img');
+    image.className = imageClass;
+    image.src = url;
+    image.alt = '';
+    return image;
+  }
+
+  const fallback = document.createElement('span');
+  fallback.className = fallbackClass;
+  fallback.textContent = entry.name.slice(0, 1).toUpperCase();
+  return fallback;
+}
+
+/** A foto mora no catálogo local; a allowlist no sync guarda só nome e handle. */
+function avatarFor(entry) {
+  const handle = String(entry.handle || '').replace(/^@/, '').toLowerCase();
+  const name = normalizeChannelText(entry.name);
+  const found = channelCatalog.find((item) => {
+    const itemHandle = String(item.handle || '').replace(/^@/, '').toLowerCase();
+    return (handle !== '' && itemHandle === handle) || normalizeChannelText(item.name) === name;
+  });
+  return found && found.avatarUrl ? found.avatarUrl : '';
 }
 
 /* ------------------------------------------------------------------ utilidades */
 
+async function sendMessage(message) {
+  let response;
+  try {
+    response = await chrome.runtime.sendMessage(message);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error ?? '');
+    if (/could not establish connection|receiving end does not exist/i.test(detail)) {
+      throw new Error('Não foi possível conectar ao serviço da extensão. Recarregue-a em chrome://extensions e tente novamente.');
+    }
+    throw new Error(detail || 'Não foi possível falar com a extensão.');
+  }
+
+  if (!response) throw new Error('A extensão não respondeu. Tente novamente.');
+  if (response.action === 'error') throw new Error(response.message || 'A operação não foi concluída.');
+  return response;
+}
+
 function displayMessage(elementId, text, isError) {
   const element = document.getElementById(elementId);
-  element.innerText = text;
-  element.className = `message ${isError ? 'error' : 'ok'}`;
-  element.style.display = 'block';
+  element.textContent = String(text);
+  element.className = `message ${isError ? 'error' : 'success'}`;
+  element.setAttribute('role', isError ? 'alert' : 'status');
+  element.hidden = false;
 }

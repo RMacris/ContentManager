@@ -117,6 +117,10 @@ checkHide('ação fica', 'Watched 2 days ago', false);
 checkHide('vivo fica', 'Live now', false);
 checkHide('agendado fica', 'Scheduled for 2 hours from now', false);
 
+process.stdout.write('\nlimite de idade configurável:\n');
+check('7 dias no limite ficam', core.shouldHide('7 days ago', 7) === false);
+check('8 dias acima do limite somem', core.shouldHide('8 days ago', 7) === true);
+
 process.stdout.write('\nshouldHideAge:\n');
 check('null fica', core.shouldHideAge(null) === false);
 check('zero fica', core.shouldHideAge(0) === false);

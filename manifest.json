@@ -1,11 +1,12 @@
 {
   "manifest_version": 3,
   "name": "Bloqueador de HTTP e Sites",
-  "version": "2.0.0",
-  "description": "Bloqueie sites indesejados, esconda vídeos antigos, jogos e anúncios no YouTube.",
+  "version": "2.3.2",
+  "description": "Bloqueie sites, esconda vídeos antigos, jogos e anúncios e filtre títulos e canais no YouTube, com allowlist.",
   "permissions": [
     "storage",
-    "declarativeNetRequest"
+    "declarativeNetRequest",
+    "scripting"
   ],
   "host_permissions": [
     "https://www.youtube.com/*"
@@ -27,7 +28,7 @@
     },
     {
       "matches": ["https://www.youtube.com/*"],
-      "js": ["src/content/age-core.js", "src/content/age-filter.js"],
+      "js": ["src/content/age-core.js", "src/content/keyword-core.js", "src/content/age-filter.js"],
       "run_at": "document_start"
     }
   ],
