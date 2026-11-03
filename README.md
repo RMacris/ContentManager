@@ -109,6 +109,7 @@ By understanding and using `.*`, you can effectively block a wide range of URLs 
 - **Default Blocked URLs:** Out of the box, this extension blocks time-wasting platforms like YouTube Shorts, TikTok, Instagram Reels, and X.com. These defaults can be toggled on and off as needed.
 - **Custom URL Blocking:** Users can add or remove their own list of blocked URLs to tailor the extension to their specific needs.
 - **Simple User Interface:** An easy-to-use popup interface allows you to manage blocked URLs and toggle default settings with a single click.
+- **Side panel:** the popup has an **"Abrir no painel lateral"** button that opens the same screen in Chrome's Side Panel — the area on the right edge of the window — so the controls stay open while you browse.
 - **Non-Removable Defaults:** Critical distractions are always kept at bay, but can be toggled if absolutely necessary.
 - **Age filter on youtube.com:** Recommendation cards older than the selected limit are hidden (3 days by default; configurable from 1 to 365 days) — home, subscriptions, search results, channels and the sidebar. Shorts, history, liked videos, watch later, playlists and the player are never filtered.
 - **Games and ads off the feed:** The playables shelf cards and the sponsored cards (in-feed, search and sidebar slots) are hidden too — they carry no age, so they go whole. Both filters are toggled in the popup, on by default.
@@ -163,9 +164,11 @@ O interruptor **"Bloquear por palavras-chave e canais"** esconde o card de recom
 palavras-chave já vem de fábrica com os termos conhecidos de IA, em pt e en — "ChatGPT",
 "Claude", "Gemini", "OpenAI", "GPT-4", "IA", "AI", "inteligência artificial", "machine learning" e
 mais — gravada na primeira leitura como uma lista comum, editável: no popup, cada item é uma
-**badge** com um "×" que o remove; digitar e apertar **Enter** (ou o botão) adiciona. A comparação
-ignora acento, maiúscula e pontuação — "GPT-4" e "gpt 4" são a mesma palavra — e casa por
-palavra inteira: "ia" não esconde "pianista". Para canais basta conter o nome digitado.
+**badge** com um "×" que o remove; digitar e apertar **Enter** (ou o botão) adiciona. Os campos de
+palavra-chave e de canal ficam juntos, no topo da seção, antes das listas: o botão de adicionar canal
+não fica enterrado embaixo de dezenas de badges. A comparação ignora acento, maiúscula e pontuação —
+"GPT-4" e "gpt 4" são a mesma palavra — e casa por palavra inteira: "ia" não esconde "pianista". Para
+canais basta conter o nome digitado.
 
 A ocultação é exatamente a da idade: `display: none` com a mesma marca no card, prateleira
 vazia recolhida, desligar o interruptor devolve tudo sem recarregar, e o mesmo escopo — home,
@@ -198,6 +201,16 @@ desconecta o `MutationObserver` sozinho, sem tocar mais no DOM. Ao atualizar a p
 anterior à 2.3.1, a aba do YouTube que já estava aberta ainda roda a instância antiga até um refresh —
 é a única migração que pede recarga; das próximas vezes a instância velha se desliga sozinha.
 
+## Painel lateral do Chrome
+
+O botão **"Abrir no painel lateral"**, no topo do popup, abre esta mesma interface no **Side Panel**
+do Chrome — a área que fica à direita da janela, ao lado da página. É o mesmo documento
+(`popup.html`), carregado dentro de um iframe que só ajusta a largura: as preferências, as listas e o
+service worker são os mesmos, então não existem duas cópias da tela. O painel também aparece no menu
+de painéis laterais do navegador, porque o manifesto declara `side_panel`. Abrir a partir do popup
+precisa de Chrome 116 ou mais novo; em versões anteriores o botão fica oculto e o popup continua
+funcionando normalmente.
+
 ## Estrutura
 
 ```
@@ -214,7 +227,8 @@ src/
 │   ├── age-core.js        lê a idade do card e decide o limite (script clássico, sem DOM)
 │   ├── keyword-core.js    casa palavras-chave e canais no texto do card (script clássico, sem DOM)
 │   └── age-filter.js      esconde/mostra os cards no site do YouTube
-└── popup/                 interface: bloqueio e configurações do filtro
+├── popup/                 interface: bloqueio e configurações do filtro
+└── sidepanel/             abre o popup dentro do painel lateral do Chrome
 ```
 
 Nenhum módulo fala com a rede: a extensão não tem servidor, não tem token e não tem
@@ -237,10 +251,11 @@ ou editar as badges vale na hora em todas as abas abertas.
 
 ## Permissões
 
-Três: `storage` (as listas e as preferências), `declarativeNetRequest` (o bloqueio de URLs) e
-`scripting` (re-injetar o filtro nas abas do YouTube abertas quando a extensão é recarregada). A
-entrada `host_permissions` de `youtube.com` acompanha os content scripts do filtro e continua
-limitando onde a injeção pode acontecer. As
+Quatro: `storage` (as listas e as preferências), `declarativeNetRequest` (o bloqueio de URLs),
+`scripting` (re-injetar o filtro nas abas do YouTube abertas quando a extensão é recarregada) e
+`sidePanel` (abrir a interface no painel lateral à direita). A entrada `host_permissions` de
+`youtube.com` acompanha os content scripts do filtro e continua limitando onde a injeção pode
+acontecer. As
 permissões `webRequest`, `webNavigation`, `activeTab`, `declarativeNetRequestFeedback`
 e `alarms` que versões anteriores declaravam **não existem mais** — a coleta e o servidor local
 que precisavam delas saíram na 2.0.0.

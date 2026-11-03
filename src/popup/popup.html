@@ -20,7 +20,9 @@
     [hidden] { display: none !important; }
     body {
       width: 390px;
+      max-width: 100%;
       max-height: 600px;
+      overflow-x: hidden;
       overflow-y: auto;
       margin: 0;
       background: #f2f5fa;
@@ -54,6 +56,23 @@
       font-size: 10px;
       font-weight: 650;
     }
+    .side-panel-button {
+      display: flex;
+      width: 100%;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      margin: 0 0 12px;
+      padding: 9px 10px;
+      border: 1px solid #dbe1f6;
+      border-radius: 10px;
+      background: #fff;
+      color: #3d4960;
+      font-size: 11px;
+      font-weight: 650;
+    }
+    .side-panel-button:hover { border-color: #c3ccf2; background: #f7f9ff; color: var(--accent-dark); }
+    .side-panel-button svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.4; }
     .panel {
       margin-bottom: 12px;
       padding: 15px;
@@ -78,6 +97,7 @@
     h2 { margin: 0; font-size: 13px; font-weight: 750; }
     .section-description { margin: 2px 0 0; color: var(--muted); font-size: 11px; }
     .field-label { display: block; margin-bottom: 6px; color: #3d4960; font-size: 11px; font-weight: 650; }
+    .stacked-form + .stacked-form { margin-top: 14px; }
     .entry-row { display: flex; gap: 7px; }
     input[type="text"], input[type="number"] {
       min-width: 0;
@@ -98,6 +118,8 @@
     button:disabled { cursor: wait; opacity: .65; }
     .primary-button {
       display: inline-flex;
+      min-width: 88px;
+      min-height: 36px;
       flex: 0 0 auto;
       align-items: center;
       justify-content: center;
@@ -105,11 +127,14 @@
       padding: 0 11px;
       border-radius: 9px;
       background: var(--accent);
+      box-shadow: 0 2px 6px rgb(76 95 227 / 18%);
       color: #fff;
       font-size: 11px;
       font-weight: 700;
+      white-space: nowrap;
     }
-    .primary-button:hover { background: var(--accent-dark); }
+    .primary-button:hover { background: var(--accent-dark); box-shadow: 0 3px 9px rgb(76 95 227 / 24%); }
+    .primary-button:active { transform: translateY(1px); box-shadow: 0 1px 4px rgb(76 95 227 / 18%); }
     .plus { font-size: 16px; font-weight: 400; line-height: 1; }
     .field-hint { margin: 6px 0 0; color: var(--muted); font-size: 10px; line-height: 1.45; }
     .field-hint code { color: #4b5793; font-size: 10px; }
@@ -187,6 +212,12 @@
     .allowed-avatar, .allowed-avatar-fallback { width: 18px; height: 18px; font-size: 9px; }
     .allowed-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .footer-note { margin: 2px 4px 0; color: #8390a4; font-size: 9px; text-align: center; }
+    /* O mesmo documento vira o painel lateral: largura da área, sem o teto do popup. */
+    body.sidepanel-surface { width: 100%; min-width: 0; max-height: none; min-height: 100vh; }
+    body.sidepanel-surface .side-panel-button { display: none; }
+    @media (min-width: 520px) {
+      body.sidepanel-surface .app-shell { max-width: 640px; margin: 0 auto; }
+    }
     @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition-duration: .01ms !important; } }
   </style>
 </head>
@@ -200,6 +231,11 @@
       </div>
       <span class="privacy-tag">Privado</span>
     </header>
+
+    <button class="side-panel-button" id="openSidePanel" type="button" title="Abrir a extensão no painel lateral, à direita da janela">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2"/><path d="M10.25 2.75v10.5"/></svg>
+      Abrir no painel lateral
+    </button>
 
     <main>
       <section class="panel" aria-labelledby="sites-title">
@@ -215,7 +251,7 @@
           <label class="field-label" for="url">Padrão de URL (expressão regular)</label>
           <div class="entry-row">
             <input type="text" id="url" name="url" placeholder=".*youtube.com/shorts.*" autocomplete="off" spellcheck="false" maxlength="2000">
-            <button class="primary-button" id="blockUrl" type="submit"><span class="plus" aria-hidden="true">+</span>Adicionar</button>
+            <button class="primary-button" id="blockUrl" type="submit" aria-label="Adicionar site à lista de bloqueio"><span class="plus" aria-hidden="true">+</span>Adicionar</button>
           </div>
           <p class="field-hint">Exemplo: <code>.*tiktok.*</code> bloqueia URLs que contenham “tiktok”.</p>
         </form>
@@ -289,34 +325,35 @@
           <span class="switch-indicator" aria-hidden="true"></span>
         </label>
 
-        <form id="keywordForm" novalidate>
+        <form id="keywordForm" class="stacked-form" novalidate>
           <label class="field-label" for="keywordInput">Palavra-chave no título</label>
           <div class="entry-row">
             <input type="text" id="keywordInput" name="keyword" placeholder="ex.: chatgpt" autocomplete="off" spellcheck="false" maxlength="60">
-            <button class="primary-button" id="addKeyword" type="submit"><span class="plus" aria-hidden="true">+</span>Adicionar</button>
+            <button class="primary-button" id="addKeyword" type="submit" aria-label="Adicionar palavra-chave"><span class="plus" aria-hidden="true">+</span>Adicionar</button>
           </div>
           <p class="field-hint">Enter adiciona. A comparação ignora acentos, maiúsculas e pontuação — “GPT-4” e “gpt 4” são a mesma.</p>
         </form>
+
+        <form id="channelForm" class="stacked-form" novalidate>
+          <label class="field-label" for="channelInput">Nome do canal</label>
+          <div class="entry-row">
+            <input type="text" id="channelInput" name="channel" placeholder="ex.: Canal de tech" autocomplete="off" spellcheck="false" maxlength="60">
+            <button class="primary-button" id="addChannel" type="submit" aria-label="Adicionar canal à lista de bloqueio"><span class="plus" aria-hidden="true">+</span>Adicionar</button>
+          </div>
+          <p class="field-hint">Enter adiciona. Basta conter o nome: “Canal X” bloqueia o card “Canal X - Ao vivo”.</p>
+        </form>
+
+        <p id="keywordMessage" class="message" role="status" aria-live="polite" hidden></p>
 
         <div class="list-caption"><span>Palavras-chave</span><span id="keywordCount" class="count-badge">0</span></div>
         <div id="keywordBadges" class="badge-list"></div>
         <p id="keywordEmpty" class="badge-empty">Nenhuma palavra-chave na lista.</p>
 
-        <form id="channelForm" novalidate>
-          <label class="field-label" for="channelInput">Nome do canal</label>
-          <div class="entry-row">
-            <input type="text" id="channelInput" name="channel" placeholder="ex.: Canal de tech" autocomplete="off" spellcheck="false" maxlength="60">
-            <button class="primary-button" id="addChannel" type="submit"><span class="plus" aria-hidden="true">+</span>Adicionar</button>
-          </div>
-          <p class="field-hint">Enter adiciona. Basta conter o nome: “Canal X” bloqueia o card “Canal X - Ao vivo”.</p>
-        </form>
-
         <div class="list-caption"><span>Canais</span><span id="channelCount" class="count-badge">0</span></div>
         <div id="channelBadges" class="badge-list"></div>
         <p id="channelEmpty" class="badge-empty">Nenhum canal na lista.</p>
 
-        <p class="scope-note">As listas só agem com o interruptor ligado. Mesmo mecanismo dos vídeos antigos: o card é ocultado na hora, sem recarregar; Shorts, histórico e listas salvas ficam de fora. Para bloquear um canal, adicione o nome na lista acima.</p>
-        <p id="keywordMessage" class="message" role="status" aria-live="polite" hidden></p>
+        <p class="scope-note">As listas só agem com o interruptor ligado. Mesmo mecanismo dos vídeos antigos: o card é ocultado na hora, sem recarregar; Shorts, histórico e listas salvas ficam de fora. Para bloquear um canal, adicione o nome no campo acima.</p>
       </section>
 
       <section class="panel" aria-labelledby="allowed-title">
@@ -332,7 +369,7 @@
           <label class="field-label" for="allowInput">Adicionar das suas inscrições</label>
           <div class="entry-row">
             <input type="text" id="allowInput" name="allow" placeholder="Digite o nome do canal" autocomplete="off" spellcheck="false" maxlength="60">
-            <button class="primary-button" id="addAllowed" type="submit"><span class="plus" aria-hidden="true">+</span>Adicionar</button>
+            <button class="primary-button" id="addAllowed" type="submit" aria-label="Adicionar canal aos sempre recomendados"><span class="plus" aria-hidden="true">+</span>Adicionar</button>
           </div>
           <p class="field-hint">Digite o nome e escolha a sugestão. Enter adiciona a primeira.</p>
         </form>

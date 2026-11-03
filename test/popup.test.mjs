@@ -110,6 +110,28 @@ test('popup gives recovery instructions when Chrome has no message receiver', as
   assert.deepEqual(backend.state.blockedUrls, []);
 });
 
+test('the popup opens the same settings in the browser side panel', async () => {
+  const popup = mountPopup();
+  await popup.document.dispatchEvent('DOMContentLoaded');
+
+  const button = popup.document.getElementById('openSidePanel');
+  assert.equal(button.hidden, false, 'the side panel option is visible in the popup');
+  await button.dispatchEvent('click');
+
+  assert.equal(backend.sidePanelCalls.length, 1);
+  assert.equal(backend.sidePanelCalls[0].windowId, -2, 'it opens in the current browser window');
+});
+
+test('the channel add form stays above the long keyword badge list', () => {
+  const keywordFormAt = popupHtml.indexOf('id="keywordForm"');
+  const channelFormAt = popupHtml.indexOf('id="channelForm"');
+  const keywordBadgesAt = popupHtml.indexOf('id="keywordBadges"');
+
+  assert.ok(keywordFormAt !== -1 && channelFormAt !== -1, 'both add forms exist');
+  assert.ok(keywordFormAt < channelFormAt, 'keyword and channel forms stay together');
+  assert.ok(channelFormAt < keywordBadgesAt, 'the channel button is not buried below the keyword badges');
+});
+
 test('keyword badges start from the AI preset, are extended and removed', async () => {
   const popup = mountPopup();
   await popup.document.dispatchEvent('DOMContentLoaded');
@@ -234,6 +256,7 @@ function createBackend() {
   let failNextRuleUpdate = false;
   let failNextMessage = false;
   let injections = [];
+  let sidePanelCalls = [];
   const storageListeners = [];
 
   const chrome = {
@@ -315,6 +338,12 @@ function createBackend() {
         return { id: 8, url };
       },
     },
+    windows: { WINDOW_ID_CURRENT: -2 },
+    sidePanel: {
+      async open(options) {
+        sidePanelCalls.push(options);
+      },
+    },
     scripting: {
       async executeScript({ target, files }) {
         injections.push({ tabId: target.tabId, files: [...files] });
@@ -354,6 +383,9 @@ function createBackend() {
     get injections() {
       return injections;
     },
+    get sidePanelCalls() {
+      return sidePanelCalls;
+    },
     set dynamicRules(value) {
       dynamicRules = value;
     },
@@ -387,6 +419,7 @@ function createBackend() {
       localState.channelCatalog = null;
       dynamicRules = [];
       injections = [];
+      sidePanelCalls = [];
       failNextStorageWrite = false;
       failNextRuleUpdate = false;
       failNextMessage = false;

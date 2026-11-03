@@ -1,12 +1,13 @@
 {
   "manifest_version": 3,
   "name": "Bloqueador de HTTP e Sites",
-  "version": "2.3.2",
+  "version": "2.4.0",
   "description": "Bloqueie sites, esconda vídeos antigos, jogos e anúncios e filtre títulos e canais no YouTube, com allowlist.",
   "permissions": [
     "storage",
     "declarativeNetRequest",
-    "scripting"
+    "scripting",
+    "sidePanel"
   ],
   "host_permissions": [
     "https://www.youtube.com/*"
@@ -17,6 +18,9 @@
   },
   "action": {
     "default_popup": "src/popup/popup.html"
+  },
+  "side_panel": {
+    "default_path": "src/sidepanel/sidepanel.html"
   },
   "icons": {
     "16": "icons/icons16.png"

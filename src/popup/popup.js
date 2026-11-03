@@ -1,4 +1,7 @@
 /** Popup da extensão. O service worker valida, aplica e persiste as alterações. */
+const IS_SIDE_PANEL = typeof location !== 'undefined' && location.search.includes('surface=sidepanel');
+if (IS_SIDE_PANEL && document.body) document.body.classList.add('sidepanel-surface');
+
 const DEFAULT_SETTINGS = {
   hideOldVideos: true,
   hideGamesAndAds: true,
@@ -32,7 +35,27 @@ async function initialize() {
     chrome.tabs.create({ url: 'https://www.youtube.com/feed/channels' });
   });
 
+  const sidePanelButton = document.getElementById('openSidePanel');
+  sidePanelButton.addEventListener('click', handleOpenSidePanel);
+  if (!chrome.sidePanel?.open) sidePanelButton.hidden = true;
+
   await Promise.all([loadBlockedUrls(), loadStatus(), loadChannelCatalog()]);
+}
+
+/* ------------------------------------------------------------ painel lateral */
+
+/** Abre esta mesma tela no painel lateral do Chrome, à direita da janela. */
+async function handleOpenSidePanel() {
+  const button = document.getElementById('openSidePanel');
+  button.disabled = true;
+  try {
+    const windowId = chrome.windows?.WINDOW_ID_CURRENT;
+    await chrome.sidePanel.open(windowId === undefined ? {} : { windowId });
+    if (typeof window !== 'undefined') window.close();
+  } catch {
+    button.disabled = false;
+    displayMessage('message', 'Não foi possível abrir o painel lateral. Atualize o Chrome e tente novamente.', true);
+  }
 }
 
 /* ------------------------------------------------------------------ bloqueio */

@@ -64,14 +64,21 @@ check('o nome do package é o da extensão', pkg.name === 'content-manager-exten
 
 process.stdout.write('\npermissões:\n');
 check(
-  'as permissões são as três mínimas declaradas',
-  JSON.stringify(manifest.permissions) === JSON.stringify(['storage', 'declarativeNetRequest', 'scripting']),
+  'as permissões são as quatro mínimas declaradas',
+  JSON.stringify(manifest.permissions) ===
+    JSON.stringify(['storage', 'declarativeNetRequest', 'scripting', 'sidePanel']),
   JSON.stringify(manifest.permissions ?? []),
+);
+check(
+  'o painel lateral está declarado',
+  manifest.side_panel && typeof manifest.side_panel.default_path === 'string',
+  manifest.side_panel && manifest.side_panel.default_path,
 );
 
 process.stdout.write('\narquivos apontados pelo manifesto:\n');
 checkFile('o service worker existe', manifest.background && manifest.background.service_worker);
 checkFile('o popup existe', manifest.action && manifest.action.default_popup);
+checkFile('a página do painel lateral existe', manifest.side_panel && manifest.side_panel.default_path);
 for (const [size, path] of Object.entries(manifest.icons || {})) {
   checkFile(`o ícone ${size} existe`, path);
 }
