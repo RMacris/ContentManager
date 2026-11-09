@@ -32,21 +32,18 @@
   const channelRules = typeof globalThis !== 'undefined' ? globalThis.YTIChannelRules : null;
   if (channelRules === null || channelRules === undefined) return;
 
+  // O ciclo da página (observer, navegação, visibilidade, varredura e guarda
+  // de órfão) vem de `content-runtime.js`, carregado antes deste arquivo; o
+  // filtro só registra o próprio scan.
+  const runtimeCore = typeof globalThis !== 'undefined' ? globalThis.YTIContentRuntime : null;
+  if (runtimeCore === null || runtimeCore === undefined) return;
+
   // Já há uma instância viva? Recarregar a extensão órfã o script antigo: o
   // `chrome.runtime.id` dele apaga. A guarda devolve falso e a reinjeção
   // (chrome.scripting) pode reviver a aba sem refresh.
   const running = globalThis.__ytiAgeFilterAlive;
   if (typeof running === 'function' && running()) return;
-  globalThis.__ytiAgeFilterAlive = isExtensionAlive;
-
-  /** O contexto desta instância ainda fala com a extensão? */
-  function isExtensionAlive() {
-    try {
-      return typeof chrome !== 'undefined' && Boolean(chrome.runtime) && Boolean(chrome.runtime.id);
-    } catch (error) {
-      return false;
-    }
-  }
+  globalThis.__ytiAgeFilterAlive = runtimeCore.isExtensionAlive;
 
   const OLD_ATTRIBUTE = 'data-yti-old';
   const DISPLAY_ATTRIBUTE = 'data-yti-old-display';
@@ -159,16 +156,11 @@
   let maxAgeDays = core.MAX_AGE_DAYS;
   let settingsRevision = 0;
   let started = false;
-  let domWatched = false;
-  let scanTimer = null;
-  let lastScanAt = 0;
+  let runtime = null;
   let cache = new WeakMap();
   let keywordCache = new WeakMap();
   let collectedChannels = new Map();
   let lastCatalogSignature = '';
-  let domObserver = null;
-  let sweepTimer = null;
-  let stopped = false;
 
   /* --------------------------------------------------------------- preferência */
 
@@ -269,71 +261,9 @@
 
   /* ------------------------------------------------------------------- varredura */
 
-  /**
-   * O YouTube é uma SPA e o feed carrega em pedaços: observa a árvore, escuta
-   * a navegação e ainda varre de tempos em tempos, porque o card pode trocar o
-   * texto de idade no lugar sem criar nó novo.
-   */
-  function watchDom() {
-    if (domWatched) return;
-    const root = document.documentElement;
-    if (root === null) {
-      document.addEventListener('DOMContentLoaded', watchDom, { once: true });
-      return;
-    }
-    domWatched = true;
-    domObserver = new MutationObserver(scheduleScan);
-    domObserver.observe(root, { childList: true, subtree: true });
-    document.addEventListener('yt-navigate-finish', scheduleScan);
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') scheduleScan();
-    });
-    scheduleScan();
-  }
-
-  /**
-   * Instância órfã não pode ficar brigando com a nova: quando o contexto morre
-   * (extensão recarregada), o timer e o observer param na próxima volta.
-   */
-  function stopIfOrphaned() {
-    if (stopped) return true;
-    if (isExtensionAlive()) return false;
-    stop();
-    return true;
-  }
-
-  function stop() {
-    stopped = true;
-    if (sweepTimer !== null) {
-      clearInterval(sweepTimer);
-      sweepTimer = null;
-    }
-    if (domObserver !== null) {
-      domObserver.disconnect();
-      domObserver = null;
-    }
-  }
-
-  /** Agenda uma varredura, com um piso de 500 ms entre uma e outra. */
+  /** Agenda a varredura deste adaptador pelo runtime compartilhado. */
   function scheduleScan() {
-    if (stopIfOrphaned()) return;
-    if (!shouldScan()) return;
-    if (scanTimer !== null) return;
-    const wait = Math.max(0, 500 - (Date.now() - lastScanAt));
-    scanTimer = setTimeout(() => {
-      scanTimer = null;
-      lastScanAt = Date.now();
-      if (stopIfOrphaned()) return;
-      scan();
-    }, wait);
-  }
-
-  /** A varredura periódica: pega o card que envelheceu sem mudança de nó. */
-  function sweep() {
-    if (stopIfOrphaned()) return;
-    if (!shouldScan()) return;
-    if (document.visibilityState === 'hidden') return;
-    scan();
+    if (runtime !== null) runtime.schedule();
   }
 
   /**
@@ -757,8 +687,12 @@
       });
     }
 
-    watchDom();
-    if (!stopped) sweepTimer = setInterval(sweep, 2000);
+    runtime = runtimeCore.register({
+      scan,
+      shouldScan,
+      // O filtro mantém o piso de 500 ms entre varreduras agendadas.
+      minScanIntervalMs: 500,
+    });
   }
 
   start();

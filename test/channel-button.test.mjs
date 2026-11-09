@@ -5,6 +5,7 @@ import { runInNewContext } from 'node:vm';
 
 const keywordCore = readFileSync(new URL('../src/content/keyword-core.js', import.meta.url), 'utf8');
 const channelRules = readFileSync(new URL('../src/content/channel-rules.js', import.meta.url), 'utf8');
+const contentRuntime = readFileSync(new URL('../src/content/content-runtime.js', import.meta.url), 'utf8');
 const channelButton = readFileSync(new URL('../src/content/channel-button.js', import.meta.url), 'utf8');
 const HOST_CLASS = 'yti-channel-block-host';
 
@@ -91,6 +92,48 @@ test('the channel page header gets the same button', () => {
   assert.equal(host.getAttribute('data-surface'), 'watch');
 });
 
+test('an orphaned chip stops the shared loop and removes its own artifacts', () => {
+  const run = runButton({ runtimeId: null });
+
+  assert.equal(run.timers.length, 0, 'no scan timer is scheduled after the context dies');
+  assert.equal(run.intervals.length, 0, 'no sweep timer is started after the context dies');
+  assert.equal(findHost(run.container), null, 'an orphaned instance does not inject a chip');
+  assert.equal(run.document.getElementById('yti-channel-block-style'), null, 'the injected style is removed');
+});
+
+test('a hidden tab does not scan the chip, and becoming visible scans again', () => {
+  const run = runButton();
+  const host = findHost(run.container);
+  assert.ok(host);
+
+  run.document.visibilityState = 'hidden';
+  host.remove();
+  run.intervals[0]();
+  assert.equal(findHost(run.container), null, 'the sweep skips a hidden tab');
+
+  run.document.visibilityState = 'visible';
+  for (const listener of run.document.listeners.get('visibilitychange') ?? []) listener();
+  flushTimers(run.timers);
+  const restored = findHost(run.container);
+  assert.ok(restored, 'returning to the tab schedules a new scan');
+
+  restored.remove();
+  run.intervals[0]();
+  assert.ok(findHost(run.container), 'the sweep scans a visible tab again');
+});
+
+test('re-injection over a live chip keeps one loop and one storage listener', () => {
+  const run = runButton();
+  const before = findHost(run.container);
+
+  runInNewContext(`${keywordCore}\n${channelRules}\n${contentRuntime}\n${channelButton}`, run.sandbox, {
+    filename: 'channel-button.js',
+  });
+
+  assert.equal(run.listeners.length, 1, 'the live instance is not duplicated');
+  assert.equal(findHost(run.container), before, 'the same chip stays in place');
+});
+
 test('the pure channel-list helpers add, match and remove entries', () => {
   const run = runButton({ blockedChannels: ['Rick'] });
   const api = run.sandbox.YTIChannelButton;
@@ -108,11 +151,12 @@ function runButton({
   surface = 'watch',
   pageTitle = null,
   pathname = '/watch',
+  runtimeId = 'extension-id',
 } = {}) {
   const container = createChannelContainer('Rick Astley', surface);
   const activeLockup = lockup ?? (withLockup ? createLockup('Retro Pulse') : null);
   const document = new FakeDocument(container, activeLockup, pageTitle);
-  const backend = createChrome(blockedChannels, allowedChannels);
+  const backend = createChrome(blockedChannels, allowedChannels, runtimeId);
   const timers = [];
   const intervals = [];
   const sandbox = {
@@ -136,7 +180,9 @@ function runButton({
     console,
   };
 
-  runInNewContext(`${keywordCore}\n${channelRules}\n${channelButton}`, sandbox, { filename: 'channel-button.js' });
+  runInNewContext(`${keywordCore}\n${channelRules}\n${contentRuntime}\n${channelButton}`, sandbox, {
+    filename: 'channel-button.js',
+  });
   flushTimers(timers);
   return { ...backend, container, lockup: activeLockup, pageTitle: document.pageTitle, document, sandbox, timers, intervals };
 }
@@ -232,7 +278,7 @@ function createLockup(name) {
   return lockup;
 }
 
-function createChrome(blockedChannels, allowedChannels) {
+function createChrome(blockedChannels, allowedChannels, runtimeId) {
   const state = {
     blockedChannels: [...blockedChannels],
     allowedChannels: [...allowedChannels],
@@ -241,7 +287,7 @@ function createChrome(blockedChannels, allowedChannels) {
   const listeners = [];
   const chrome = {
     runtime: {
-      id: 'extension-id',
+      id: runtimeId,
       lastError: null,
       async sendMessage(message) {
         messages.push(message);

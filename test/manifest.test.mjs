@@ -98,7 +98,7 @@ for (const entry of manifest.web_accessible_resources || []) {
   for (const file of entry.resources || []) checkFile(`o recurso ${file} existe`, file);
 }
 check(
-  'o filtro do YouTube está declarado com os cinco scripts, na ordem',
+  'o filtro do YouTube está declarado com os seis scripts, na ordem',
   (manifest.content_scripts || []).some(
     (entry) =>
       JSON.stringify(entry.js) ===
@@ -106,6 +106,7 @@ check(
         'src/content/age-core.js',
         'src/content/keyword-core.js',
         'src/content/channel-rules.js',
+        'src/content/content-runtime.js',
         'src/content/channel-button.js',
         'src/content/age-filter.js',
       ]),
