@@ -6,6 +6,7 @@ import { runInNewContext } from 'node:vm';
 const ageCore = readFileSync(new URL('../src/content/age-core.js', import.meta.url), 'utf8');
 const keywordCore = readFileSync(new URL('../src/content/keyword-core.js', import.meta.url), 'utf8');
 const channelRules = readFileSync(new URL('../src/content/channel-rules.js', import.meta.url), 'utf8');
+const youtubeDom = readFileSync(new URL('../src/content/youtube-dom.js', import.meta.url), 'utf8');
 const contentRuntime = readFileSync(new URL('../src/content/content-runtime.js', import.meta.url), 'utf8');
 const ageFilter = readFileSync(new URL('../src/content/age-filter.js', import.meta.url), 'utf8');
 
@@ -53,7 +54,7 @@ test('the YouTube filter applies the saved age limit and reacts to changes', () 
     },
   };
 
-  runInNewContext(`${ageCore}\n${keywordCore}\n${channelRules}\n${contentRuntime}\n${ageFilter}`, {
+  runInNewContext(`${ageCore}\n${keywordCore}\n${channelRules}\n${youtubeDom}\n${contentRuntime}\n${ageFilter}`, {
     chrome,
     document,
     location: { pathname: '/' },
@@ -180,7 +181,7 @@ test('keyword and channel blocking reuse the age-filter hiding and undo on toggl
     },
   };
 
-  runInNewContext(`${ageCore}\n${keywordCore}\n${channelRules}\n${contentRuntime}\n${ageFilter}`, {
+  runInNewContext(`${ageCore}\n${keywordCore}\n${channelRules}\n${youtubeDom}\n${contentRuntime}\n${ageFilter}`, {
     chrome,
     document,
     location: { pathname: '/' },
@@ -315,7 +316,7 @@ test('an unknown card layout still matches keywords using the whole card text', 
     },
   };
 
-  runInNewContext(`${ageCore}\n${keywordCore}\n${channelRules}\n${contentRuntime}\n${ageFilter}`, {
+  runInNewContext(`${ageCore}\n${keywordCore}\n${channelRules}\n${youtubeDom}\n${contentRuntime}\n${ageFilter}`, {
     chrome,
     document,
     location: { pathname: '/' },
@@ -344,13 +345,13 @@ test('a live filter is not duplicated; an orphaned one is revived by re-injectio
   const live = runFilterScripts({ runtimeId: 'extension-id' });
   assert.equal(live.storageListeners.length, 1);
   assert.equal(live.timers.length, 1, 'a live instance schedules its scans');
-  runInNewContext(`${ageCore}\n${keywordCore}\n${channelRules}\n${contentRuntime}\n${ageFilter}`, live.sandbox);
+  runInNewContext(`${ageCore}\n${keywordCore}\n${channelRules}\n${youtubeDom}\n${contentRuntime}\n${ageFilter}`, live.sandbox);
   assert.equal(live.storageListeners.length, 1, 're-running over a live instance does nothing');
 
   const orphaned = runFilterScripts({ runtimeId: undefined });
   assert.equal(orphaned.storageListeners.length, 1);
   assert.equal(orphaned.timers.length, 0, 'an orphaned instance stops scheduling scans instead of fighting the new one');
-  runInNewContext(`${ageCore}\n${keywordCore}\n${channelRules}\n${contentRuntime}\n${ageFilter}`, orphaned.sandbox);
+  runInNewContext(`${ageCore}\n${keywordCore}\n${channelRules}\n${youtubeDom}\n${contentRuntime}\n${ageFilter}`, orphaned.sandbox);
   assert.equal(orphaned.storageListeners.length, 2, 're-running over an orphaned instance revives it');
 });
 
@@ -414,7 +415,7 @@ function runFilterScripts({ runtimeId }) {
     },
     setInterval() {},
   };
-  runInNewContext(`${ageCore}\n${keywordCore}\n${channelRules}\n${contentRuntime}\n${ageFilter}`, sandbox);
+  runInNewContext(`${ageCore}\n${keywordCore}\n${channelRules}\n${youtubeDom}\n${contentRuntime}\n${ageFilter}`, sandbox);
   return { sandbox, storageListeners, timers };
 }
 
@@ -469,7 +470,7 @@ test('allowlisted channels stay visible even with matching keywords and blocked 
     },
   };
 
-  runInNewContext(`${ageCore}\n${keywordCore}\n${channelRules}\n${contentRuntime}\n${ageFilter}`, {
+  runInNewContext(`${ageCore}\n${keywordCore}\n${channelRules}\n${youtubeDom}\n${contentRuntime}\n${ageFilter}`, {
     chrome,
     document,
     location: { pathname: '/' },
@@ -550,7 +551,7 @@ test('changing only the age limit or keyword list does not drop the allowlist', 
     },
   };
 
-  runInNewContext(`${ageCore}\n${keywordCore}\n${channelRules}\n${contentRuntime}\n${ageFilter}`, {
+  runInNewContext(`${ageCore}\n${keywordCore}\n${channelRules}\n${youtubeDom}\n${contentRuntime}\n${ageFilter}`, {
     chrome,
     document,
     location: { pathname: '/' },
@@ -638,7 +639,7 @@ test('the channels page feeds the subscriptions catalog', () => {
     },
   };
 
-  runInNewContext(`${ageCore}\n${keywordCore}\n${channelRules}\n${contentRuntime}\n${ageFilter}`, {
+  runInNewContext(`${ageCore}\n${keywordCore}\n${channelRules}\n${youtubeDom}\n${contentRuntime}\n${ageFilter}`, {
     chrome,
     document,
     location: { pathname: '/feed/channels' },
