@@ -1,38 +1,45 @@
 {
-    "manifest_version": 3,
-    "name": "Bloqueador de HTTP e Sites",
-    "version": "1.0",
-    "description": "Bloqueie sites e requisições HTTP indesejados para uma experiência online mais segura e personalizada.",
-    "permissions": [
-      "webRequest",
-      "activeTab",
-      "storage",
-      "declarativeNetRequest",
-      "declarativeNetRequestFeedback",
-      "scripting",
-      "webNavigation"
-    ],
-    "background": {
-      "service_worker": "background.js"
+  "manifest_version": 3,
+  "name": "Bloqueador de HTTP e Sites",
+  "version": "2.5.0",
+  "description": "Bloqueie sites, esconda vídeos antigos, jogos e anúncios e filtre títulos e canais no YouTube, com allowlist.",
+  "permissions": [
+    "storage",
+    "declarativeNetRequest",
+    "scripting",
+    "sidePanel"
+  ],
+  "host_permissions": [
+    "https://www.youtube.com/*"
+  ],
+  "background": {
+    "service_worker": "src/background/service-worker.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "src/popup/popup.html"
+  },
+  "side_panel": {
+    "default_path": "src/sidepanel/sidepanel.html"
+  },
+  "icons": {
+    "16": "icons/icons16.png"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["src/content/block-guard.js"]
     },
-    "action": {
-      "default_popup": "popup.html"
-    },
-    "icons": {
-      "16": "icons/icons16.png"
-
-    },
-    "content_scripts": [
-        {
-          "matches": ["<all_urls>"],
-          "js": ["content.js"]
-        }
-    ],
-    "web_accessible_resources": [
-        {
-          "resources": ["blocked.html"],
-          "matches": ["<all_urls>"]
-        }
-      ]
-  }
-  
+    {
+      "matches": ["https://www.youtube.com/*"],
+      "js": ["src/content/age-core.js", "src/content/keyword-core.js", "src/content/channel-button.js", "src/content/age-filter.js"],
+      "run_at": "document_start"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["blocked.html"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}

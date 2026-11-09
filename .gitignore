@@ -1,0 +1,16 @@
+# Dependências. A extensão não tem nenhuma hoje — mas o npm cria a pasta, e ela
+# não deve entrar no repositório se isso mudar.
+node_modules/
+
+# Artefatos de build, caso um passo de compilação seja adicionado um dia.
+# Hoje a extensão é JavaScript puro: o Chrome carrega o que está na pasta.
+dist/
+
+# Logs
+*.log
+
+# Lixo de sistema operacional e de editor
+Thumbs.db
+desktop.ini
+.idea/
+.serena/
