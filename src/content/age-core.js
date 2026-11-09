@@ -9,6 +9,9 @@
  * A idade vem do texto que o próprio YouTube escreve no card ("há 5 h",
  * "1 day ago"). Não existe timestamp absoluto no card, então a leitura é
  * aproximada de propósito — a mesma que o usuário vê.
+ *
+ * O limite de dias não mora aqui: quem chama passa o valor que veio do
+ * `settings-contract.js` (dono do padrão e da faixa).
  */
 (function (root) {
   'use strict';
