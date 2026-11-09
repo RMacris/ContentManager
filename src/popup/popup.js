@@ -2,6 +2,10 @@
 const IS_SIDE_PANEL = typeof location !== 'undefined' && location.search.includes('surface=sidepanel');
 if (IS_SIDE_PANEL && document.body) document.body.classList.add('sidepanel-surface');
 
+// A política das listas vem de `content/channel-rules.js`, carregado antes
+// deste script pelo popup.html. A tela é só um adaptador.
+const channelRules = globalThis.YTIChannelRules;
+
 const DEFAULT_SETTINGS = {
   hideOldVideos: true,
   hideGamesAndAds: true,
@@ -240,7 +244,7 @@ async function addListItem(inputId, settingsKey, label) {
   }
 
   const current = Array.isArray(savedSettings[settingsKey]) ? savedSettings[settingsKey] : [];
-  if (current.some((item) => item.toLowerCase() === value.toLowerCase())) {
+  if (channelRules.hasListItem(current, value)) {
     displayMessage('keywordMessage', `“${value}” já está na lista.`, true);
     return;
   }
@@ -353,16 +357,14 @@ async function loadChannelCatalog() {
 }
 
 function normalizeChannelText(value) {
-  const core = typeof globalThis !== 'undefined' ? globalThis.YTIKeywordFilter : null;
-  const text = String(value ?? '').trim();
-  return core ? core.normalizeText(text) : text.toLowerCase();
+  return channelRules.normalizeChannelName(value);
 }
 
 function searchCatalog(needle) {
   const matches = [];
   for (const entry of channelCatalog) {
-    const name = normalizeChannelText(entry.name);
-    const handle = normalizeChannelText(String(entry.handle || '').replace(/^@/, ''));
+    const name = channelRules.normalizeChannelName(entry.name);
+    const handle = channelRules.normalizeHandle(entry.handle);
     if (name.includes(needle) || handle.includes(needle)) matches.push(entry);
     if (matches.length >= MAX_SUGGESTIONS) break;
   }
@@ -417,7 +419,7 @@ async function handleAddAllowed(event) {
 
 async function addAllowedChannel(entry) {
   const current = Array.isArray(savedSettings.allowedChannels) ? savedSettings.allowedChannels : [];
-  if (current.some((item) => sameChannel(item, entry))) {
+  if (current.some((item) => channelRules.sameChannel(item, entry))) {
     displayMessage('allowMessage', `“${entry.name}” já está na lista.`, true);
     return;
   }
@@ -428,13 +430,6 @@ async function addAllowedChannel(entry) {
     document.getElementById('allowInput').value = '';
     renderAllowSuggestions();
   }
-}
-
-function sameChannel(a, b) {
-  const handleA = String(a.handle || '').replace(/^@/, '').toLowerCase();
-  const handleB = String(b.handle || '').replace(/^@/, '').toLowerCase();
-  if (handleA !== '' && handleB !== '') return handleA === handleB;
-  return normalizeChannelText(a.name) === normalizeChannelText(b.name);
 }
 
 async function persistAllowed(nextValues, successMessage) {
@@ -483,7 +478,7 @@ function createAllowedBadge(entry) {
   removeButton.addEventListener('click', async () => {
     const current = Array.isArray(savedSettings.allowedChannels) ? savedSettings.allowedChannels : [];
     await persistAllowed(
-      current.filter((item) => !sameChannel(item, entry)),
+      current.filter((item) => !channelRules.sameChannel(item, entry)),
       `${entry.name} removido dos sempre recomendados.`,
     );
   });
@@ -509,11 +504,11 @@ function createChannelAvatar(entry, imageClass, fallbackClass) {
 
 /** A foto mora no catálogo local; a allowlist no sync guarda só nome e handle. */
 function avatarFor(entry) {
-  const handle = String(entry.handle || '').replace(/^@/, '').toLowerCase();
-  const name = normalizeChannelText(entry.name);
+  const handle = channelRules.normalizeHandle(entry.handle);
+  const name = channelRules.normalizeChannelName(entry.name);
   const found = channelCatalog.find((item) => {
-    const itemHandle = String(item.handle || '').replace(/^@/, '').toLowerCase();
-    return (handle !== '' && itemHandle === handle) || normalizeChannelText(item.name) === name;
+    const itemHandle = channelRules.normalizeHandle(item.handle);
+    return (handle !== '' && itemHandle === handle) || channelRules.normalizeChannelName(item.name) === name;
   });
   return found && found.avatarUrl ? found.avatarUrl : '';
 }

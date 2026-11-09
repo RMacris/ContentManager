@@ -26,14 +26,18 @@
   const core = typeof globalThis !== 'undefined' ? globalThis.YTIAgeFilter : null;
   if (core === null || core === undefined) return;
 
+  const keywordCore = typeof globalThis !== 'undefined' ? globalThis.YTIKeywordFilter : null;
+  // A política das listas de canais vem de `channel-rules.js`, carregado antes
+  // deste arquivo; o filtro é só um adaptador sobre ela.
+  const channelRules = typeof globalThis !== 'undefined' ? globalThis.YTIChannelRules : null;
+  if (channelRules === null || channelRules === undefined) return;
+
   // Já há uma instância viva? Recarregar a extensão órfã o script antigo: o
   // `chrome.runtime.id` dele apaga. A guarda devolve falso e a reinjeção
   // (chrome.scripting) pode reviver a aba sem refresh.
   const running = globalThis.__ytiAgeFilterAlive;
   if (typeof running === 'function' && running()) return;
   globalThis.__ytiAgeFilterAlive = isExtensionAlive;
-
-  const keywordCore = typeof globalThis !== 'undefined' ? globalThis.YTIKeywordFilter : null;
 
   /** O contexto desta instância ainda fala com a extensão? */
   function isExtensionAlive() {
@@ -150,8 +154,7 @@
   let blockingKeywords = false;
   let blockedKeywords = [];
   let blockedChannels = [];
-  let allowedHandles = [];
-  let allowedNames = [];
+  let allowedChannels = [];
   let allowedSignature = '';
   let maxAgeDays = core.MAX_AGE_DAYS;
   let settingsRevision = 0;
@@ -218,10 +221,10 @@
     const nextPromoted = next.promoted !== false;
     const nextMaxAgeDays = normalizeMaxAgeDays(next.ageLimit);
     const nextBlockingKeywords = next.blockKeywords === true;
-    const nextKeywords = normalizeList(next.keywords);
-    const nextChannels = normalizeList(next.channels);
-    const nextAllowed = normalizeAllowed(next.allowed);
-    const nextAllowedSignature = allowedSignatureOf(nextAllowed);
+    const nextKeywords = channelRules.normalizeList(next.keywords);
+    const nextChannels = channelRules.normalizeList(next.channels);
+    const nextAllowed = channelRules.normalizeAllowed(next.allowed);
+    const nextAllowedSignature = channelRules.allowedSignature(nextAllowed);
     if (
       nextAged === hidingAged &&
       nextPromoted === hidingPromoted &&
@@ -240,8 +243,7 @@
     blockingKeywords = nextBlockingKeywords;
     blockedKeywords = nextKeywords;
     blockedChannels = nextChannels;
-    allowedHandles = nextAllowed.handles;
-    allowedNames = nextAllowed.names;
+    allowedChannels = nextAllowed;
     allowedSignature = nextAllowedSignature;
     cache = new WeakMap();
     keywordCache = new WeakMap();
@@ -252,49 +254,6 @@
   function normalizeMaxAgeDays(value) {
     const days = Number(value);
     return Number.isInteger(days) && days >= 1 && days <= 365 ? days : core.MAX_AGE_DAYS;
-  }
-
-  /** A lista que veio do armazenamento, só com texto útil. */
-  function normalizeList(values) {
-    if (!Array.isArray(values)) return [];
-    const list = [];
-    for (let i = 0; i < values.length; i += 1) {
-      if (typeof values[i] !== 'string') continue;
-      const value = values[i].trim();
-      if (value !== '') list.push(value);
-    }
-    return list;
-  }
-
-  /** A allowlist vira dois conjuntos: handles e nomes normalizados. */
-  function normalizeAllowed(values) {
-    const handles = [];
-    const names = [];
-    if (!Array.isArray(values)) return { handles, names };
-    for (let i = 0; i < values.length; i += 1) {
-      const entry = values[i];
-      if (entry === null || typeof entry !== 'object') continue;
-      if (typeof entry.handle === 'string' && entry.handle.trim() !== '') {
-        handles.push(normalizeHandle(entry.handle));
-      }
-      if (typeof entry.name === 'string' && entry.name.trim() !== '') {
-        names.push(normalizeChannelName(entry.name));
-      }
-    }
-    return { handles, names };
-  }
-
-  function allowedSignatureOf(allowed) {
-    return allowed.handles.join('\u0001') + '\u0002' + allowed.names.join('\u0001');
-  }
-
-  function normalizeHandle(value) {
-    return value.trim().replace(/^@/, '').toLowerCase();
-  }
-
-  function normalizeChannelName(value) {
-    if (keywordCore !== null && keywordCore !== undefined) return keywordCore.normalizeText(value);
-    return value.trim().toLowerCase();
   }
 
   /* ------------------------------------------------------------------- páginas */
@@ -548,7 +507,7 @@
     let blocked = keywordCore.matchesKeyword(title, blockedKeywords);
     if (!blocked) {
       for (let i = 0; i < channels.length; i += 1) {
-        if (keywordCore.matchesChannel(channels[i], blockedChannels)) {
+        if (channelRules.isBlockedChannel(channels[i], blockedChannels)) {
           blocked = true;
           break;
         }
@@ -572,29 +531,16 @@
    * palavra-chave e até um canal bloqueado perdem para a allowlist.
    */
   function isAllowedCard(card) {
-    if (allowedHandles.length === 0 && allowedNames.length === 0) return false;
+    if (allowedChannels.length === 0) return false;
     const nodes = channelNodes(card);
     for (let i = 0; i < nodes.length; i += 1) {
-      const handle = channelHandleOf(nodes[i]);
-      if (handle !== '' && allowedHandles.indexOf(handle) !== -1) return true;
-      const name = textWithBreaks(nodes[i]);
-      if (name !== '' && allowedNames.indexOf(normalizeChannelName(name)) !== -1) return true;
+      const node = nodes[i];
+      const href = typeof node.getAttribute === 'function' ? node.getAttribute('href') : '';
+      const handle = channelRules.handleFromHref(href);
+      const name = textWithBreaks(node);
+      if (channelRules.isAllowedChannel(name, handle, allowedChannels)) return true;
     }
     return false;
-  }
-
-  /** O handle do canal a partir do href do link, sem `@` e em minúsculas. */
-  function channelHandleOf(node) {
-    if (typeof node.getAttribute !== 'function') return '';
-    const href = node.getAttribute('href');
-    if (typeof href !== 'string') return '';
-    const match = href.match(/^\/@([^/?#]+)/) || href.match(/youtube\.com\/@([^/?#]+)/);
-    if (match === null) return '';
-    try {
-      return decodeURIComponent(match[1]).toLowerCase();
-    } catch (error) {
-      return match[1].toLowerCase();
-    }
   }
 
   /**
@@ -620,7 +566,7 @@
       const subscribers = subscribersNode === null ? '' : textWithBreaks(subscribersNode);
       const handle = subscribers.startsWith('@')
         ? subscribers.split(' ')[0]
-        : handleFromHref(href);
+        : displayHandleFromHref(href);
 
       const avatarNode = item.querySelector('#img');
       const avatarUrl = avatarNode === null || typeof avatarNode.getAttribute !== 'function'
@@ -654,15 +600,10 @@
     }
   }
 
-  function handleFromHref(href) {
-    if (typeof href !== 'string') return '';
-    const match = href.match(/^\/@([^/?#]+)/) || href.match(/youtube\.com\/@([^/?#]+)/);
-    if (match === null) return '';
-    try {
-      return '@' + decodeURIComponent(match[1]);
-    } catch (error) {
-      return '@' + match[1];
-    }
+  /** O handle como o catálogo o exibe, com `@` na frente. */
+  function displayHandleFromHref(href) {
+    const handle = channelRules.handleFromHref(href);
+    return handle === '' ? '' : '@' + handle;
   }
 
   function evaluateCard(card) {
@@ -811,7 +752,7 @@
           blockKeywords: keywordToggleChange ? keywordToggleChange.newValue : blockingKeywords,
           keywords: keywordsChange ? keywordsChange.newValue : blockedKeywords,
           channels: channelsChange ? channelsChange.newValue : blockedChannels,
-          allowed: allowedChange ? allowedChange.newValue : { handles: allowedHandles, names: allowedNames },
+          allowed: allowedChange ? allowedChange.newValue : allowedChannels,
         });
       });
     }

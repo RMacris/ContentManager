@@ -14,8 +14,10 @@
 (function () {
   'use strict';
 
-  const keywordCore = typeof globalThis !== 'undefined' ? globalThis.YTIKeywordFilter : null;
-  if (keywordCore === null || keywordCore === undefined) return;
+  // As regras de lista vêm de `channel-rules.js`, carregado antes deste
+  // arquivo. Sem elas não há como decidir allowlist nem blocklist.
+  const channelRules = typeof globalThis !== 'undefined' ? globalThis.YTIChannelRules : null;
+  if (channelRules === null || channelRules === undefined) return;
 
   // Recarregar a extensão órfã o script antigo: o `chrome.runtime.id` dele
   // apaga. A guarda devolve falso e a reinjeção (chrome.scripting) revive a
@@ -27,8 +29,6 @@
   const HOST_CLASS = 'yti-channel-block-host';
   const STYLE_ID = 'yti-channel-block-style';
   const INSTANCE_ID = Math.random().toString(36).slice(2);
-  // O mesmo teto de `background/settings.js`: nome maior não pode ser salvo.
-  const MAX_NAME_LENGTH = 60;
   const HOST_SELECTOR = '.' + HOST_CLASS;
   const INSTANCE_ATTRIBUTE = 'data-yti-instance';
 
@@ -82,8 +82,7 @@
   const LOCKUP_AVATAR_SELECTOR = '.ytLockupMetadataViewModelAvatar, yt-avatar-shape';
 
   let blockedChannels = [];
-  let allowedHandles = [];
-  let allowedNames = [];
+  let allowedChannels = [];
   let started = false;
   let stopped = false;
   let domWatched = false;
@@ -204,110 +203,27 @@
     }
   }
 
-  function cleanText(value) {
-    return String(value === null || value === undefined ? '' : value)
-      .replace(/[\u200b-\u200d\ufeff]/g, '')
-      .replace(/\s+/g, ' ')
-      .trim();
-  }
-
-  function normalizeName(value) {
-    return keywordCore.normalizeText(cleanText(value));
-  }
-
-  function normalizeList(values) {
-    if (!Array.isArray(values)) return [];
-    const list = [];
-    const seen = new Set();
-    for (let i = 0; i < values.length; i += 1) {
-      if (typeof values[i] !== 'string') continue;
-      const text = values[i].trim();
-      const key = normalizeName(text);
-      if (key === '' || seen.has(key)) continue;
-      seen.add(key);
-      list.push(text);
-    }
-    return list;
-  }
-
-  function normalizeAllowed(values) {
-    const handles = [];
-    const names = [];
-    if (!Array.isArray(values)) return { handles, names };
-    for (let i = 0; i < values.length; i += 1) {
-      const entry = values[i];
-      if (entry === null || typeof entry !== 'object') continue;
-      if (typeof entry.handle === 'string' && entry.handle.trim() !== '') {
-        handles.push(entry.handle.trim().replace(/^@/, '').toLowerCase());
-      }
-      if (typeof entry.name === 'string' && entry.name.trim() !== '') {
-        names.push(normalizeName(entry.name));
-      }
-    }
-    return { handles, names };
-  }
-
-  function isAllowedChannel(name, handle) {
-    const normalizedHandle = String(handle || '').replace(/^@/, '').toLowerCase();
-    if (normalizedHandle !== '' && allowedHandles.indexOf(normalizedHandle) !== -1) return true;
-    return allowedNames.indexOf(normalizeName(name)) !== -1;
-  }
-
-  function isBlockedChannel(name) {
-    return keywordCore.matchesChannel(name, blockedChannels);
-  }
-
-  function matchesEntry(name, entry) {
-    const needle = normalizeName(entry);
-    return needle !== '' && normalizeName(name).includes(needle);
-  }
-
-  function nextBlockedChannels(name) {
-    if (isBlockedChannel(name)) {
-      return blockedChannels.filter((entry) => !matchesEntry(name, entry));
-    }
-    return [...blockedChannels, name];
-  }
-
-  function handleFromHref(href) {
-    const value = String(href || '');
-    const match = value.match(/^\/@([^/?#]+)/) || value.match(/youtube\.com\/@([^/?#]+)/);
-    if (match === null) return '';
-    try {
-      return decodeURIComponent(match[1]);
-    } catch (error) {
-      return match[1];
-    }
-  }
-
   function isVisible(node) {
     return Boolean(node) && typeof node.getClientRects === 'function' && node.getClientRects().length > 0;
   }
 
-  function isUsableName(name) {
-    return name !== '' && name.length <= MAX_NAME_LENGTH;
-  }
-
-  /** API pura, útil para a suíte e para depurar a lista no console. */
+  /** API de depuração; toda a política de lista mora em `channel-rules.js`. */
   globalThis.YTIChannelButton = {
-    cleanText,
-    normalizeName,
-    isBlocked: isBlockedChannel,
-    nextBlockedChannels,
-    matchesEntry,
+    cleanText: channelRules.cleanText,
+    normalizeName: channelRules.normalizeChannelName,
+    isBlocked: (name) => channelRules.isBlockedChannel(name, blockedChannels),
+    nextBlockedChannels: (name) => channelRules.nextBlockedChannels(name, blockedChannels),
   };
 
   /* --------------------------------------------------------- estado e desenho */
 
   function setBlockedChannels(values) {
-    blockedChannels = normalizeList(values);
+    blockedChannels = channelRules.normalizeList(values);
     refreshHosts();
   }
 
   function setAllowedChannels(values) {
-    const allowed = normalizeAllowed(values);
-    allowedHandles = allowed.handles;
-    allowedNames = allowed.names;
+    allowedChannels = channelRules.normalizeAllowed(values);
     refreshHosts();
     scheduleScan();
   }
@@ -318,9 +234,9 @@
         liveHosts.delete(host);
         continue;
       }
-      const name = cleanText(host.getAttribute('data-channel'));
+      const name = channelRules.cleanText(host.getAttribute('data-channel'));
       const handle = host.getAttribute('data-handle') || '';
-      if (name === '' || isAllowedChannel(name, handle)) {
+      if (name === '' || channelRules.isAllowedChannel(name, handle, allowedChannels)) {
         host.remove();
         liveHosts.delete(host);
         continue;
@@ -341,7 +257,7 @@
     if (handle === '') host.removeAttribute('data-handle');
     else host.setAttribute('data-handle', handle);
 
-    const blocked = isBlockedChannel(name);
+    const blocked = channelRules.isBlockedChannel(name, blockedChannels);
     host.setAttribute('data-blocked', blocked ? 'true' : 'false');
 
     const action = blocked ? 'Desbloquear' : 'Bloquear';
@@ -387,7 +303,7 @@
   }
 
   function ensureHost(key, name, handle, surface, append) {
-    if (isAllowedChannel(name, handle)) {
+    if (channelRules.isAllowedChannel(name, handle, allowedChannels)) {
       const allowedHost = hostMap.get(key);
       if (allowedHost !== undefined) {
         allowedHost.remove();
@@ -424,10 +340,10 @@
   function channelNameFrom(container, link) {
     const text = container.querySelector('#text');
     if (text !== null) {
-      const value = cleanText(text.textContent);
+      const value = channelRules.cleanText(text.textContent);
       if (value !== '') return value;
     }
-    return cleanText(link.textContent);
+    return channelRules.cleanText(link.textContent);
   }
 
   function wantsClassicContainer(container) {
@@ -444,8 +360,8 @@
       const link = container.querySelector(CHANNEL_LINK_SELECTOR);
       if (link === null) continue;
       const name = channelNameFrom(container, link);
-      if (!isUsableName(name)) continue;
-      const handle = handleFromHref(link.getAttribute('href'));
+      if (!channelRules.isUsableChannelName(name)) continue;
+      const handle = channelRules.handleFromHref(link.getAttribute('href'));
       const surface = container.closest(CARD_SELECTOR) !== null ? 'card' : 'watch';
       ensureHost(container, name, handle, surface, (host) => {
         if (host.parentNode !== container) container.appendChild(host);
@@ -470,8 +386,8 @@
     // outra legenda que não é canal. O card clássico cobre o resto.
     if (!hasBadge && !hasAvatar) return null;
 
-    const name = cleanText(nameNode.textContent);
-    if (!isUsableName(name)) return null;
+    const name = channelRules.cleanText(nameNode.textContent);
+    if (!channelRules.isUsableChannelName(name)) return null;
 
     let anchor = nameNode;
     const next = nameNode.nextElementSibling;
@@ -492,13 +408,7 @@
   }
 
   function pageHandle() {
-    const match = String(location.pathname || '').match(/^\/@([^/?#]+)/);
-    if (match === null) return '';
-    try {
-      return decodeURIComponent(match[1]);
-    } catch (error) {
-      return match[1];
-    }
+    return channelRules.handleFromHref(String(location.pathname || ''));
   }
 
   function scanPageHeader() {
@@ -507,8 +417,8 @@
     for (let i = 0; i < titles.length; i += 1) {
       const title = titles[i];
       if (!isVisible(title)) continue;
-      const name = cleanText(title.textContent);
-      if (!isUsableName(name)) continue;
+      const name = channelRules.cleanText(title.textContent);
+      if (!channelRules.isUsableChannelName(name)) continue;
       ensureHost(title, name, pageHandle(), 'watch', (host) => {
         if (host.parentNode !== title) title.appendChild(host);
       });
@@ -631,11 +541,11 @@
     if (!host.isConnected) return;
     if (host.getAttribute('data-pending') === 'true') return;
 
-    const name = cleanText(host.getAttribute('data-channel'));
+    const name = channelRules.cleanText(host.getAttribute('data-channel'));
     if (name === '') return;
     const handle = host.getAttribute('data-handle') || '';
     const surface = host.getAttribute('data-surface') || 'card';
-    const next = nextBlockedChannels(name);
+    const next = channelRules.nextBlockedChannels(name, blockedChannels);
 
     setPending(host, true);
     try {
