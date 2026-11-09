@@ -371,9 +371,12 @@
     if (name === '') return;
     const handle = host.getAttribute('data-handle') || '';
     const surface = host.getAttribute('data-surface') || 'card';
+    const previous = blockedChannels;
     const next = channelRules.nextBlockedChannels(name, blockedChannels);
 
     setPending(host, true);
+    // A troca do chip acompanha o clique; o salvamento só confirma ou desfaz.
+    setBlockedChannels(next);
     try {
       const response = await chrome.runtime.sendMessage({
         action: 'saveSettings',
@@ -385,6 +388,7 @@
       const saved = response.settings && response.settings.blockedChannels;
       setBlockedChannels(Array.isArray(saved) ? saved : next);
     } catch (error) {
+      setBlockedChannels(previous);
       if (!runtimeCore.isExtensionAlive()) {
         if (runtime !== null) runtime.stop();
         return;
