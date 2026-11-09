@@ -19,6 +19,10 @@
  * desse caminho. Histórico e listas salvas também: ali a data é uma ação do
  * usuário ("Assistido há…"), não uma recomendação — e esconder o item apagaria
  * a própria lista que ele abriu.
+ *
+ * A leitura do DOM — seletores, título, canais, metadados e o card de
+ * inscrição — mora em `youtube-dom.js`. Aqui ficam só as regras: classificar o
+ * modelo lido e decidir esconder ou mostrar.
  */
 (function () {
   'use strict';
@@ -32,103 +36,28 @@
   const channelRules = typeof globalThis !== 'undefined' ? globalThis.YTIChannelRules : null;
   if (channelRules === null || channelRules === undefined) return;
 
+  // A leitura do DOM do YouTube vem de `youtube-dom.js`, carregado antes deste
+  // arquivo; o filtro classifica o modelo lido e decide esconder ou mostrar.
+  const youtubeDom = typeof globalThis !== 'undefined' ? globalThis.YTIYouTubeDom : null;
+  if (youtubeDom === null || youtubeDom === undefined) return;
+
+  // O ciclo da página (observer, navegação, visibilidade, varredura e guarda
+  // de órfão) vem de `content-runtime.js`, carregado antes deste arquivo; o
+  // filtro só registra o próprio scan.
+  const runtimeCore = typeof globalThis !== 'undefined' ? globalThis.YTIContentRuntime : null;
+  if (runtimeCore === null || runtimeCore === undefined) return;
+
   // Já há uma instância viva? Recarregar a extensão órfã o script antigo: o
   // `chrome.runtime.id` dele apaga. A guarda devolve falso e a reinjeção
   // (chrome.scripting) pode reviver a aba sem refresh.
   const running = globalThis.__ytiAgeFilterAlive;
   if (typeof running === 'function' && running()) return;
-  globalThis.__ytiAgeFilterAlive = isExtensionAlive;
-
-  /** O contexto desta instância ainda fala com a extensão? */
-  function isExtensionAlive() {
-    try {
-      return typeof chrome !== 'undefined' && Boolean(chrome.runtime) && Boolean(chrome.runtime.id);
-    } catch (error) {
-      return false;
-    }
-  }
+  globalThis.__ytiAgeFilterAlive = runtimeCore.isExtensionAlive;
 
   const OLD_ATTRIBUTE = 'data-yti-old';
   const DISPLAY_ATTRIBUTE = 'data-yti-old-display';
   const SHELF_ATTRIBUTE = 'data-yti-old-shelf';
   const SHELF_DISPLAY_ATTRIBUTE = 'data-yti-old-shelf-display';
-
-  /** Os cards de vídeo de hoje: rich item (home/canal), search e os antigos. */
-  const CARD_SELECTOR = [
-    'ytd-rich-item-renderer',
-    'ytd-video-renderer',
-    'ytd-grid-video-renderer',
-    'ytd-compact-video-renderer',
-    'yt-lockup-view-model',
-    // Anúncio também é card: o slot no feed, o da busca e o da coluna lateral.
-    'ytd-ad-slot-renderer',
-    'ytd-promoted-sparkles-web-renderer',
-    'ytd-display-ad-renderer',
-  ].join(',');
-
-  /**
-   * O que não é vídeo com data de publicação — não há idade para julgar.
-   *
-   * O card de jogo da prateleira de playables e o anúncio no feed: os dois têm
-   * interruptor próprio e são escondidos por inteiro, sem olhar a data.
-   */
-  const PROMOTED_SELECTOR = [
-    'ytd-ad-slot-renderer',
-    'ytd-in-feed-ad-layout-renderer',
-    'ytd-display-ad-renderer',
-    'ytd-promoted-sparkles-web-renderer',
-    'ytd-promoted-video-renderer',
-    'feed-ad-metadata-view-model',
-    'ad-badge-view-model',
-    'ytd-mini-game-card-view-model',
-    'mini-game-card-view-model',
-    'a[href*="/playables/"]',
-  ].join(',');
-
-  /** Onde o card escreve a idade: lockup novo e os blocos antigos. */
-  const METADATA_SELECTOR = [
-    '#metadata-line',
-    'ytd-video-meta-block',
-    'yt-content-metadata-view-model',
-    '#metadata',
-    '.inline-metadata-item',
-  ].join(',');
-
-  /** Cards de Shorts: nunca entram no filtro de idade. */
-  const SHORTS_SELECTOR = [
-    'ytm-shorts-lockup-view-model',
-    'ytm-shorts-lockup-view-model-v2',
-    'ytd-shorts-lockup-view-model',
-    'ytd-reel-item-renderer',
-    'ytd-rich-grid-slim-media',
-  ].join(',');
-
-  /** Onde o card escreve o título do vídeo, do card antigo ao lockup novo. */
-  const TITLE_SELECTORS = [
-    '#video-title',
-    '#video-title-link',
-    '.yt-lockup-metadata-view-model__heading',
-    'h3',
-    'a[title]',
-  ];
-
-  /** Onde o card escreve o nome do canal que publicou o vídeo. */
-  const CHANNEL_SELECTORS = [
-    'ytd-channel-name a',
-    '#channel-name a',
-    'a[href^="/@"]',
-    'a[href*="/channel/"]',
-    'a[href*="/c/"]',
-    'a[href*="/user/"]',
-    '.yt-lockup-metadata-view-model__subheading',
-  ];
-
-  /** A página de inscrições, de onde sai o catálogo de canais. */
-  const CHANNELS_PAGE_PATH = '/feed/channels';
-  const SUBSCRIBED_CHANNEL_SELECTOR = 'ytd-channel-renderer';
-
-  /** Prateleira da home (jogos, "assistir de novo"): some se ficar sem card. */
-  const SHELF_SELECTOR = 'ytd-rich-shelf-renderer';
 
   /**
    * O que o usuário escolheu ver, não o que o YouTube recomendou. São as
@@ -159,16 +88,11 @@
   let maxAgeDays = core.MAX_AGE_DAYS;
   let settingsRevision = 0;
   let started = false;
-  let domWatched = false;
-  let scanTimer = null;
-  let lastScanAt = 0;
+  let runtime = null;
   let cache = new WeakMap();
   let keywordCache = new WeakMap();
   let collectedChannels = new Map();
   let lastCatalogSignature = '';
-  let domObserver = null;
-  let sweepTimer = null;
-  let stopped = false;
 
   /* --------------------------------------------------------------- preferência */
 
@@ -269,71 +193,9 @@
 
   /* ------------------------------------------------------------------- varredura */
 
-  /**
-   * O YouTube é uma SPA e o feed carrega em pedaços: observa a árvore, escuta
-   * a navegação e ainda varre de tempos em tempos, porque o card pode trocar o
-   * texto de idade no lugar sem criar nó novo.
-   */
-  function watchDom() {
-    if (domWatched) return;
-    const root = document.documentElement;
-    if (root === null) {
-      document.addEventListener('DOMContentLoaded', watchDom, { once: true });
-      return;
-    }
-    domWatched = true;
-    domObserver = new MutationObserver(scheduleScan);
-    domObserver.observe(root, { childList: true, subtree: true });
-    document.addEventListener('yt-navigate-finish', scheduleScan);
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') scheduleScan();
-    });
-    scheduleScan();
-  }
-
-  /**
-   * Instância órfã não pode ficar brigando com a nova: quando o contexto morre
-   * (extensão recarregada), o timer e o observer param na próxima volta.
-   */
-  function stopIfOrphaned() {
-    if (stopped) return true;
-    if (isExtensionAlive()) return false;
-    stop();
-    return true;
-  }
-
-  function stop() {
-    stopped = true;
-    if (sweepTimer !== null) {
-      clearInterval(sweepTimer);
-      sweepTimer = null;
-    }
-    if (domObserver !== null) {
-      domObserver.disconnect();
-      domObserver = null;
-    }
-  }
-
-  /** Agenda uma varredura, com um piso de 500 ms entre uma e outra. */
+  /** Agenda a varredura deste adaptador pelo runtime compartilhado. */
   function scheduleScan() {
-    if (stopIfOrphaned()) return;
-    if (!shouldScan()) return;
-    if (scanTimer !== null) return;
-    const wait = Math.max(0, 500 - (Date.now() - lastScanAt));
-    scanTimer = setTimeout(() => {
-      scanTimer = null;
-      lastScanAt = Date.now();
-      if (stopIfOrphaned()) return;
-      scan();
-    }, wait);
-  }
-
-  /** A varredura periódica: pega o card que envelheceu sem mudança de nó. */
-  function sweep() {
-    if (stopIfOrphaned()) return;
-    if (!shouldScan()) return;
-    if (document.visibilityState === 'hidden') return;
-    scan();
+    if (runtime !== null) runtime.schedule();
   }
 
   /**
@@ -346,7 +208,7 @@
   }
 
   function isChannelsPage() {
-    return String(location.pathname || '') === CHANNELS_PAGE_PATH;
+    return youtubeDom.isChannelsPage(location.pathname);
   }
 
   function scan() {
@@ -358,7 +220,7 @@
 
     if (isChannelsPage()) collectSubscribedChannels();
 
-    const cards = document.querySelectorAll(CARD_SELECTOR);
+    const cards = document.querySelectorAll(youtubeDom.selectors.card);
     for (let i = 0; i < cards.length; i += 1) {
       const card = cards[i];
       if (isNestedCard(card)) continue;
@@ -377,10 +239,10 @@
    * continua de pé.
    */
   function collapseShelves() {
-    const shelves = document.querySelectorAll(SHELF_SELECTOR);
+    const shelves = document.querySelectorAll(youtubeDom.selectors.shelf);
     for (let i = 0; i < shelves.length; i += 1) {
       const shelf = shelves[i];
-      const items = shelf.querySelectorAll('ytd-rich-item-renderer');
+      const items = shelf.querySelectorAll(youtubeDom.selectors.shelfItem);
       let collapsed = items.length > 0;
       for (let j = 0; j < items.length && collapsed; j += 1) {
         if (items[j].getAttribute(OLD_ATTRIBUTE) !== '1') collapsed = false;
@@ -394,100 +256,8 @@
   function isNestedCard(card) {
     const parent = card.parentElement;
     if (parent === null) return false;
-    const outer = parent.closest(CARD_SELECTOR);
+    const outer = parent.closest(youtubeDom.selectors.card);
     return outer !== null && outer !== card;
-  }
-
-  function isShortsCard(card) {
-    if (card.matches(SHORTS_SELECTOR)) return true;
-    if (card.querySelector(SHORTS_SELECTOR) !== null) return true;
-    if (card.querySelector('a[href*="/shorts/"]') !== null) return true;
-    return false;
-  }
-
-  /** Só card de vídeo: playlist, canal e post ficam de fora. */
-  function isVideoCard(card) {
-    if (card.querySelector('a[href*="/playlist"]') !== null) return false;
-    return card.querySelector('a[href*="/watch?v="]') !== null;
-  }
-
-  /** Anúncio ou card de jogo: não tem data de publicação para julgar. */
-  function isPromotedCard(card) {
-    if (card.matches(PROMOTED_SELECTOR)) return true;
-    return card.querySelector(PROMOTED_SELECTOR) !== null;
-  }
-
-  /**
-   * O texto do bloco com um espaço entre cada trecho.
-   *
-   * O `textContent` cola os filhos sem separador — a home escreve
-   * `<span>1,2 mi de visualizações</span><span>Assistido há 5 dias</span>`, e o
-   * resultado "visualizaçõesAssistido" escapa da guarda de ação, que lê
-   * palavra por palavra. Separar os trechos devolve as palavras que o card
-   * mostra, e continua certo quando a idade está quebrada em vários nós
-   * ("há <b>5</b> dias").
-   */
-  function textWithBreaks(node) {
-    const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
-    const parts = [];
-    let current = walker.nextNode();
-    while (current !== null) {
-      const data = current.data.trim();
-      if (data !== '') parts.push(data);
-      current = walker.nextNode();
-    }
-    return parts.join(' ');
-  }
-
-  /** Os textos que podem carregar a idade, do bloco inteiro e de cada parte. */
-  function metadataTexts(card) {
-    const nodes = card.querySelectorAll(METADATA_SELECTOR);
-    const texts = [];
-    for (let i = 0; i < nodes.length; i += 1) {
-      const node = nodes[i];
-      const whole = textWithBreaks(node);
-      if (whole) texts.push(whole);
-      const spans = node.querySelectorAll('span');
-      for (let j = 0; j < spans.length; j += 1) {
-        const part = textWithBreaks(spans[j]);
-        if (part) texts.push(part);
-      }
-    }
-    return texts;
-  }
-
-  /** O título do vídeo: o primeiro seletor que tem texto decide. */
-  function titleText(card) {
-    for (let i = 0; i < TITLE_SELECTORS.length; i += 1) {
-      const node = card.querySelector(TITLE_SELECTORS[i]);
-      if (node === null || node === undefined) continue;
-      const text = textWithBreaks(node);
-      if (text !== '') return text;
-    }
-    return '';
-  }
-
-  /** Os nós de canal que o card mostra, sem repetir o mesmo nó. */
-  function channelNodes(card) {
-    const nodes = [];
-    for (let i = 0; i < CHANNEL_SELECTORS.length; i += 1) {
-      const found = card.querySelectorAll(CHANNEL_SELECTORS[i]);
-      for (let j = 0; j < found.length; j += 1) {
-        if (nodes.indexOf(found[j]) === -1) nodes.push(found[j]);
-      }
-    }
-    return nodes;
-  }
-
-  /** Os nomes de canal que o card mostra (o do texto e o do avatar). */
-  function channelTexts(card) {
-    const texts = [];
-    const nodes = channelNodes(card);
-    for (let i = 0; i < nodes.length; i += 1) {
-      const text = textWithBreaks(nodes[i]);
-      if (text !== '') texts.push(text);
-    }
-    return texts;
   }
 
   /**
@@ -496,18 +266,20 @@
    * A assinatura evita reprocessar em cada varredura: muda quando o YouTube
    * recicla o card ou troca o texto dele.
    */
-  function isKeywordBlocked(card) {
+  function isKeywordBlocked(read, card) {
     if (keywordCore === null || keywordCore === undefined) return false;
-    const title = titleText(card);
-    const channels = channelTexts(card);
-    const signature = title + '\u0001' + channels.join('\u0001');
+    const title = read.title;
+    const channels = read.channels;
+    const names = [];
+    for (let i = 0; i < channels.length; i += 1) names.push(channels[i].name);
+    const signature = title + '\u0001' + names.join('\u0001');
     const cached = keywordCache.get(card);
     if (cached !== undefined && cached.signature === signature) return cached.blocked;
 
     let blocked = keywordCore.matchesKeyword(title, blockedKeywords);
     if (!blocked) {
-      for (let i = 0; i < channels.length; i += 1) {
-        if (channelRules.isBlockedChannel(channels[i], blockedChannels)) {
+      for (let i = 0; i < names.length; i += 1) {
+        if (channelRules.isBlockedChannel(names[i], blockedChannels)) {
           blocked = true;
           break;
         }
@@ -516,7 +288,7 @@
     // Layout desconhecido (sem título reconhecível): o texto inteiro do card
     // ainda encontra a palavra-chave, em vez de o filtro falhar aberto.
     if (!blocked && title === '') {
-      blocked = keywordCore.matchesKeyword(textWithBreaks(card), blockedKeywords);
+      blocked = keywordCore.matchesKeyword(read.wholeText, blockedKeywords);
     }
 
     keywordCache.set(card, { signature, blocked });
@@ -530,15 +302,11 @@
    * pelo nome exato normalizado. Quem está aqui nunca é escondido — a idade, a
    * palavra-chave e até um canal bloqueado perdem para a allowlist.
    */
-  function isAllowedCard(card) {
+  function isAllowedCard(read) {
     if (allowedChannels.length === 0) return false;
-    const nodes = channelNodes(card);
-    for (let i = 0; i < nodes.length; i += 1) {
-      const node = nodes[i];
-      const href = typeof node.getAttribute === 'function' ? node.getAttribute('href') : '';
-      const handle = channelRules.handleFromHref(href);
-      const name = textWithBreaks(node);
-      if (channelRules.isAllowedChannel(name, handle, allowedChannels)) return true;
+    const channels = read.channels;
+    for (let i = 0; i < channels.length; i += 1) {
+      if (channelRules.isAllowedChannel(channels[i].name, channels[i].handle, allowedChannels)) return true;
     }
     return false;
   }
@@ -549,39 +317,26 @@
    * catálogo que já estava guardado.
    */
   function collectSubscribedChannels() {
-    const items = document.querySelectorAll(SUBSCRIBED_CHANNEL_SELECTOR);
+    const items = document.querySelectorAll(youtubeDom.selectors.subscriptionCard);
     let changed = false;
 
     for (let i = 0; i < items.length; i += 1) {
-      const item = items[i];
-      const nameNode = item.querySelector('#channel-title #text') || item.querySelector('#text');
-      const name = nameNode === null ? '' : textWithBreaks(nameNode);
-      if (name === '') continue;
+      const channel = youtubeDom.readSubscribedChannel(items[i]);
+      if (channel === null) continue;
 
-      const mainLink = item.querySelector('#main-link');
-      const href = mainLink === null || typeof mainLink.getAttribute !== 'function'
-        ? null
-        : mainLink.getAttribute('href');
-      const subscribersNode = item.querySelector('#subscribers');
-      const subscribers = subscribersNode === null ? '' : textWithBreaks(subscribersNode);
-      const handle = subscribers.startsWith('@')
-        ? subscribers.split(' ')[0]
-        : displayHandleFromHref(href);
-
-      const avatarNode = item.querySelector('#img');
-      const avatarUrl = avatarNode === null || typeof avatarNode.getAttribute !== 'function'
-        ? ''
-        : avatarNode.getAttribute('src') || '';
-
-      const key = (handle || name).toLowerCase();
+      const key = (channel.handle || channel.name).toLowerCase();
       const previous = collectedChannels.get(key);
       if (
         previous === undefined ||
-        previous.name !== name ||
-        previous.handle !== handle ||
-        previous.avatarUrl !== avatarUrl
+        previous.name !== channel.name ||
+        previous.handle !== channel.handle ||
+        previous.avatarUrl !== channel.avatarUrl
       ) {
-        collectedChannels.set(key, { name, handle, avatarUrl });
+        collectedChannels.set(key, {
+          name: channel.name,
+          handle: channel.handle,
+          avatarUrl: channel.avatarUrl,
+        });
         changed = true;
       }
     }
@@ -600,15 +355,11 @@
     }
   }
 
-  /** O handle como o catálogo o exibe, com `@` na frente. */
-  function displayHandleFromHref(href) {
-    const handle = channelRules.handleFromHref(href);
-    return handle === '' ? '' : '@' + handle;
-  }
-
   function evaluateCard(card) {
+    const read = youtubeDom.readCard(card);
+
     // Anúncio e jogo somem por inteiro: a data deles não existe no card.
-    if (isPromotedCard(card)) {
+    if (read.promoted) {
       if (hidingPromoted) hide(card);
       else show(card);
       return;
@@ -619,19 +370,19 @@
       return;
     }
 
-    if (isShortsCard(card) || !isVideoCard(card)) {
+    if (read.shorts || !read.video) {
       show(card);
       return;
     }
 
     // Sempre recomendado vence tudo: a allowlist é a última palavra.
-    if (isAllowedCard(card)) {
+    if (isAllowedCard(read)) {
       show(card);
       return;
     }
 
     // Palavra-chave no título ou canal bloqueado: mesma ocultação da idade.
-    if (blockingKeywords && isKeywordBlocked(card)) {
+    if (blockingKeywords && isKeywordBlocked(read, card)) {
       hide(card);
       return;
     }
@@ -641,7 +392,7 @@
       return;
     }
 
-    const texts = metadataTexts(card);
+    const texts = read.metadataTexts;
     if (texts.length === 0) {
       show(card);
       return;
@@ -757,8 +508,12 @@
       });
     }
 
-    watchDom();
-    if (!stopped) sweepTimer = setInterval(sweep, 2000);
+    runtime = runtimeCore.register({
+      scan,
+      shouldScan,
+      // O filtro mantém o piso de 500 ms entre varreduras agendadas.
+      minScanIntervalMs: 500,
+    });
   }
 
   start();
