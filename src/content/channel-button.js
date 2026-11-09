@@ -19,12 +19,17 @@
   const channelRules = typeof globalThis !== 'undefined' ? globalThis.YTIChannelRules : null;
   if (channelRules === null || channelRules === undefined) return;
 
+  // O ciclo da página vem de `content-runtime.js`, carregado antes deste
+  // arquivo; o chip só registra o próprio scan e a limpeza dos botões.
+  const runtimeCore = typeof globalThis !== 'undefined' ? globalThis.YTIContentRuntime : null;
+  if (runtimeCore === null || runtimeCore === undefined) return;
+
   // Recarregar a extensão órfã o script antigo: o `chrome.runtime.id` dele
   // apaga. A guarda devolve falso e a reinjeção (chrome.scripting) revive a
   // aba sem refresh, do mesmo jeito que o filtro de idade.
   const running = globalThis.__ytiChannelButtonAlive;
   if (typeof running === 'function' && running()) return;
-  globalThis.__ytiChannelButtonAlive = isExtensionAlive;
+  globalThis.__ytiChannelButtonAlive = runtimeCore.isExtensionAlive;
 
   const HOST_CLASS = 'yti-channel-block-host';
   const STYLE_ID = 'yti-channel-block-style';
@@ -84,12 +89,7 @@
   let blockedChannels = [];
   let allowedChannels = [];
   let started = false;
-  let stopped = false;
-  let domWatched = false;
-  let domObserver = null;
-  let scanTimer = null;
-  let sweepTimer = null;
-  let lastScanAt = 0;
+  let runtime = null;
   let saveQueue = Promise.resolve();
   let hostMap = new WeakMap();
   let buttonOf = new WeakMap();
@@ -194,14 +194,6 @@
   `;
 
   /* --------------------------------------------------------------- utilidades */
-
-  function isExtensionAlive() {
-    try {
-      return typeof chrome !== 'undefined' && Boolean(chrome.runtime) && Boolean(chrome.runtime.id);
-    } catch (error) {
-      return false;
-    }
-  }
 
   function isVisible(node) {
     return Boolean(node) && typeof node.getClientRects === 'function' && node.getClientRects().length > 0;
@@ -442,60 +434,21 @@
   }
 
   function scan() {
-    if (!shouldRun()) return;
     injectStyle();
     scanClassicContainers();
     scanLockups();
     scanPageHeader();
   }
 
-  function shouldRun() {
-    if (stopped) return false;
-    if (document.visibilityState === 'hidden') return false;
+  function shouldScan() {
     return true;
   }
 
   /* ------------------------------------------------------------------ ciclo */
 
-  function watchDom() {
-    if (domWatched) return;
-    const root = document.documentElement;
-    if (root === null || root === undefined) {
-      document.addEventListener('DOMContentLoaded', watchDom, { once: true });
-      return;
-    }
-    domWatched = true;
-    domObserver = new MutationObserver(scheduleScan);
-    domObserver.observe(root, { childList: true, subtree: true });
-    document.addEventListener('yt-navigate-finish', scheduleScan);
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') scheduleScan();
-    });
-    scheduleScan();
-  }
-
+  /** Agenda a varredura deste adaptador pelo runtime compartilhado. */
   function scheduleScan() {
-    if (stopIfOrphaned()) return;
-    if (scanTimer !== null) return;
-    const wait = Math.max(0, 250 - (Date.now() - lastScanAt));
-    scanTimer = setTimeout(() => {
-      scanTimer = null;
-      lastScanAt = Date.now();
-      if (stopIfOrphaned()) return;
-      scan();
-    }, wait);
-  }
-
-  function sweep() {
-    if (stopIfOrphaned()) return;
-    scan();
-  }
-
-  function stopIfOrphaned() {
-    if (stopped) return true;
-    if (isExtensionAlive()) return false;
-    stop();
-    return true;
+    if (runtime !== null) runtime.schedule();
   }
 
   function removeOwnArtifacts() {
@@ -505,23 +458,6 @@
     }
     const style = document.getElementById(STYLE_ID);
     if (style !== null && style.getAttribute(INSTANCE_ATTRIBUTE) === INSTANCE_ID) style.remove();
-  }
-
-  function stop() {
-    stopped = true;
-    if (scanTimer !== null) {
-      clearTimeout(scanTimer);
-      scanTimer = null;
-    }
-    if (sweepTimer !== null) {
-      clearInterval(sweepTimer);
-      sweepTimer = null;
-    }
-    if (domObserver !== null) {
-      domObserver.disconnect();
-      domObserver = null;
-    }
-    removeOwnArtifacts();
   }
 
   function removeOldArtifacts() {
@@ -559,8 +495,8 @@
       const saved = response.settings && response.settings.blockedChannels;
       setBlockedChannels(Array.isArray(saved) ? saved : next);
     } catch (error) {
-      if (!isExtensionAlive()) {
-        stop();
+      if (!runtimeCore.isExtensionAlive()) {
+        if (runtime !== null) runtime.stop();
         return;
       }
       host.setAttribute('data-error', 'true');
@@ -613,8 +549,13 @@
     injectStyle();
     readSettings();
     listenForChanges();
-    watchDom();
-    if (!stopped) sweepTimer = setInterval(sweep, 2000);
+    runtime = runtimeCore.register({
+      scan,
+      shouldScan,
+      onStop: removeOwnArtifacts,
+      // O chip mantém o piso de 250 ms entre varreduras agendadas.
+      minScanIntervalMs: 250,
+    });
   }
 
   start();

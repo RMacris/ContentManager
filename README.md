@@ -242,6 +242,7 @@ src/
 │   ├── age-core.js        lê a idade do card e decide o limite (script clássico, sem DOM)
 │   ├── keyword-core.js    casa palavras-chave e canais no texto do card (script clássico, sem DOM)
 │   ├── channel-rules.js   normaliza listas e resolve allowlist/blocklist (script clássico, sem DOM)
+│   ├── content-runtime.js ciclo da página: observer, navegação, visibilidade, varredura e guarda de órfão
 │   ├── channel-button.js  chip de bloqueio ao lado do nome do canal
 │   └── age-filter.js      esconde/mostra os cards no site do YouTube
 ├── popup/                 interface: bloqueio e configurações do filtro
@@ -305,6 +306,10 @@ allowlist/blocklist e o próximo estado ao clicar no chip.
 O **botão ao lado do nome do canal** tem suíte própria (`test/channel-button.test.mjs`): o chip
 aparece no dono do vídeo, o clique adiciona e remove `blockedChannels` pelo service worker, a
 allowlist tira o botão e o layout novo do lockup recebe a versão compacta. O DOM falso roda em `vm`.
+
+O **ciclo da página** é um só (`content-runtime.js`): observer, navegação, visibilidade, varredura
+de 2 s e desligamento da instância órfã. O filtro de idade e o chip registram apenas o próprio
+`scan`; as suítes cobrem a instância órfã nos dois adaptadores e a aba oculta no chip.
 
 ## Installation
 
