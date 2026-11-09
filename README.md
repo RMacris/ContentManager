@@ -241,11 +241,13 @@ src/
 │   └── settings-contract.js  padrões, limites, chaves e normalização (script clássico, sem DOM)
 ├── content/
 │   ├── block-guard.js     redireciona URLs bloqueadas (script clássico)
-│   ├── age-core.js        lê a idade do card e decide o limite (script clássico, sem DOM)
+│   ├── age-core.js        lê a idade do card (o limite vem do contrato; script clássico, sem DOM)
 │   ├── keyword-core.js    casa palavras-chave e canais no texto do card (script clássico, sem DOM)
 │   ├── channel-rules.js   normaliza listas e resolve allowlist/blocklist (script clássico, sem DOM)
 │   ├── youtube-dom.js     lê card, alvo do chip e card de inscrição (script clássico)
 │   ├── content-runtime.js ciclo da página: observer, navegação, visibilidade, varredura e guarda de órfão
+│   ├── content-settings.js leitura única das preferências e um listener para os adaptadores
+│   ├── channel-catalog.js  coleta as inscrições da página de canais para o catálogo local
 │   ├── channel-button.js  chip de bloqueio ao lado do nome do canal
 │   └── age-filter.js      esconde/mostra os cards no site do YouTube
 ├── popup/                 interface: bloqueio e configurações do filtro
@@ -263,8 +265,9 @@ A seção **Filtro do YouTube** do popup tem duas caixas ligadas por padrão: **
 `blockKeywords` (desligado por padrão) e as listas `blockedKeywords`/`blockedChannels`; a seção
 **Sempre recomendados** guarda `allowedChannels` (nome + handle) e o catálogo de inscrições vive em
 `chrome.storage.local`. As preferências
-moram em `chrome.storage.sync` e o content
-script escuta as mudanças — por isso os filtros reagem sem recarregar a página. A aba do YouTube que
+moram em `chrome.storage.sync` e um único feed no content script
+(`content-settings.js`) entrega as mudanças ao filtro e ao chip — por isso os filtros reagem sem
+recarregar a página. A aba do YouTube que
 já estava aberta quando a extensão foi recarregada também não precisa de refresh: o service worker
 re-injeta o filtro nela (`chrome.scripting`) no `onInstalled`/`onStartup` **e a cada salvamento do
 popup**, porque recarregar a extensão órfã os content scripts antigos. Assim, ativar o interruptor
@@ -316,14 +319,24 @@ limites (idade de 1 a 365 dias, listas de 100 itens com 60 caracteres, allowlist
 normalização. O popup monta os controles a partir dele e o service worker continua sendo a
 autoridade que valida e grava em `chrome.storage.sync`.
 
+O **feed dos content scripts** tem suíte própria (`test/content-settings.test.mjs`): uma leitura do
+storage, um listener e a ordem que faz uma mudança vencer uma leitura inicial atrasada. O filtro e o
+chip assinam esse feed em vez de cada um montar o próprio `chrome.storage`.
+
+O **catálogo de inscrições** tem duas suítes: `test/channels.test.mjs` fixa a identidade (um canal
+com handle e outro sem viram uma linha só, pelo `channel-rules.js`) e o teto de 60 caracteres que a
+allowlist aceita; `test/channel-catalog.test.mjs` cobre a coleta na página de inscrições, a recusa
+de varrer outras páginas e a reinjeção. O `channels.js` importa as regras puras para o service
+worker, do mesmo jeito que o `settings.js`.
+
 O **botão ao lado do nome do canal** tem suíte própria (`test/channel-button.test.mjs`): o chip
 aparece no dono do vídeo, o clique adiciona e remove `blockedChannels` pelo service worker, a
 allowlist tira o botão e o layout novo do lockup recebe a versão compacta. O DOM falso roda em `vm`.
 
 O **ciclo da página** é um só (`content-runtime.js`) e tem suíte própria
-(`test/content-runtime.test.mjs`): um observer e um sweep para dois adaptadores, aba oculta e
-desligamento da instância órfã. O filtro de idade e o chip registram apenas o próprio `scan`; as
-suítes dos adaptadores cobrem a instância órfã nos dois e a aba oculta no chip.
+(`test/content-runtime.test.mjs`): um observer e um sweep para vários adaptadores, aba oculta e
+desligamento da instância órfã. O filtro de idade, o chip e o catálogo registram apenas o próprio
+`scan`; as suítes dos adaptadores cobrem a instância órfã e a aba oculta no chip.
 
 ## Installation
 

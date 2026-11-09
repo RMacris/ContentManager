@@ -15,7 +15,7 @@
  *  - a allowlist e a blocklist casam por essa identidade;
  *  - o clique no botão calcula a próxima lista de bloqueados.
  *
- * Os quatro consumidores — filtro, chip, popup e settings — são adaptadores:
+ * Os consumidores — filtro, chip, catálogo, popup e settings — são adaptadores:
  * só chamam estas funções e não guardam cópia da regra.
  */
 (function (root) {

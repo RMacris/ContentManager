@@ -5,8 +5,10 @@ import { runInNewContext } from 'node:vm';
 
 const keywordCore = readFileSync(new URL('../src/content/keyword-core.js', import.meta.url), 'utf8');
 const channelRules = readFileSync(new URL('../src/content/channel-rules.js', import.meta.url), 'utf8');
+const settingsContract = readFileSync(new URL('../src/shared/settings-contract.js', import.meta.url), 'utf8');
 const youtubeDom = readFileSync(new URL('../src/content/youtube-dom.js', import.meta.url), 'utf8');
 const contentRuntime = readFileSync(new URL('../src/content/content-runtime.js', import.meta.url), 'utf8');
+const contentSettings = readFileSync(new URL('../src/content/content-settings.js', import.meta.url), 'utf8');
 const channelButton = readFileSync(new URL('../src/content/channel-button.js', import.meta.url), 'utf8');
 const HOST_CLASS = 'yti-channel-block-host';
 
@@ -168,7 +170,7 @@ test('re-injection over a live chip keeps one loop and one storage listener', ()
   const run = runButton();
   const before = findHost(run.container);
 
-  runInNewContext(`${keywordCore}\n${channelRules}\n${youtubeDom}\n${contentRuntime}\n${channelButton}`, run.sandbox, {
+  runInNewContext(`${keywordCore}\n${channelRules}\n${settingsContract}\n${youtubeDom}\n${contentRuntime}\n${contentSettings}\n${channelButton}`, run.sandbox, {
     filename: 'channel-button.js',
   });
 
@@ -229,7 +231,7 @@ function runButton({
     },
   };
 
-  runInNewContext(`${keywordCore}\n${channelRules}\n${youtubeDom}\n${contentRuntime}\n${channelButton}`, sandbox, {
+  runInNewContext(`${keywordCore}\n${channelRules}\n${settingsContract}\n${youtubeDom}\n${contentRuntime}\n${contentSettings}\n${channelButton}`, sandbox, {
     filename: 'channel-button.js',
   });
   flushTimers(timers);

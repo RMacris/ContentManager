@@ -303,7 +303,7 @@ async function addListItem(inputId, settingsKey, label) {
   }
 
   const current = Array.isArray(savedSettings[settingsKey]) ? savedSettings[settingsKey] : [];
-  if (settingsContract.hasListItem(current, value)) {
+  if (channelRules.hasListItem(current, value)) {
     displayMessage('keywordMessage', `“${value}” já está na lista.`, true);
     return;
   }
@@ -478,7 +478,7 @@ async function handleAddAllowed(event) {
 
 async function addAllowedChannel(entry) {
   const current = Array.isArray(savedSettings.allowedChannels) ? savedSettings.allowedChannels : [];
-  if (current.some((item) => settingsContract.sameChannel(item, entry))) {
+  if (current.some((item) => channelRules.sameChannel(item, entry))) {
     displayMessage('allowMessage', `“${entry.name}” já está na lista.`, true);
     return;
   }

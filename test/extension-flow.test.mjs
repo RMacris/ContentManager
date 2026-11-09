@@ -92,12 +92,8 @@ const {
   saveSettings,
   PRESET_AI_KEYWORDS,
   DEFAULT_SETTINGS,
-  MIN_MAX_AGE_DAYS,
-  MAX_MAX_AGE_DAYS,
-  MAX_LIST_ITEMS,
-  MAX_ITEM_LENGTH,
-  MAX_ALLOWED_CHANNELS,
 } = await import('../src/background/settings.js?extension-flow-test');
+const { LIMITS } = globalThis.YTISettingsContract;
 const { injectFilterIntoOpenTabs } = await import('../src/background/injection.js?extension-flow-test');
 
 beforeEach(() => {
@@ -232,8 +228,11 @@ test('reloading the extension revives the filter in open YouTube tabs without a 
     'src/content/age-core.js',
     'src/content/keyword-core.js',
     'src/content/channel-rules.js',
+    'src/shared/settings-contract.js',
     'src/content/youtube-dom.js',
     'src/content/content-runtime.js',
+    'src/content/content-settings.js',
+    'src/content/channel-catalog.js',
     'src/content/channel-button.js',
     'src/content/age-filter.js',
   ]);
@@ -292,22 +291,26 @@ test('the service worker takes defaults and limits from the shared contract', ()
     maxAgeDays: 3,
     blockKeywords: false,
   });
-  assert.equal(MIN_MAX_AGE_DAYS, 1);
-  assert.equal(MAX_MAX_AGE_DAYS, 365);
-  assert.equal(MAX_LIST_ITEMS, 100);
-  assert.equal(MAX_ITEM_LENGTH, 60);
-  assert.equal(MAX_ALLOWED_CHANNELS, 50);
+  assert.deepEqual(LIMITS, {
+    maxAgeDays: { min: 1, max: 365 },
+    maxListItems: 100,
+    maxItemLength: 60,
+    maxAllowedChannels: 50,
+  });
 });
 
 test('the age limit accepts the contract boundaries and persists them', async () => {
-  assert.equal((await saveSettings({ maxAgeDays: MIN_MAX_AGE_DAYS })).maxAgeDays, 1);
+  const min = LIMITS.maxAgeDays.min;
+  const max = LIMITS.maxAgeDays.max;
+
+  assert.equal((await saveSettings({ maxAgeDays: min })).maxAgeDays, 1);
   assert.equal(storage.maxAgeDays, 1);
 
-  assert.equal((await saveSettings({ maxAgeDays: MAX_MAX_AGE_DAYS })).maxAgeDays, 365);
+  assert.equal((await saveSettings({ maxAgeDays: max })).maxAgeDays, 365);
   assert.equal(storage.maxAgeDays, 365);
 
   await assert.rejects(
-    saveSettings({ maxAgeDays: MAX_MAX_AGE_DAYS + 1 }),
+    saveSettings({ maxAgeDays: max + 1 }),
     /entre 1 e 365 dias/,
   );
   assert.equal(storage.maxAgeDays, 365, 'a rejected boundary does not overwrite the saved value');

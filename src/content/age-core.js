@@ -9,6 +9,9 @@
  * A idade vem do texto que o próprio YouTube escreve no card ("há 5 h",
  * "1 day ago"). Não existe timestamp absoluto no card, então a leitura é
  * aproximada de propósito — a mesma que o usuário vê.
+ *
+ * O limite de dias não mora aqui: quem chama passa o valor que veio do
+ * `settings-contract.js` (dono do padrão e da faixa).
  */
 (function (root) {
   'use strict';
@@ -170,23 +173,29 @@
   /**
    * A data é mais velha que `maxDays` dias? A comparação é estrita: o card de
    * "3 dias" fica, o de "4 dias" some — é o "mais de 3 dias" que o usuário pediu.
+   *
+   * O limite é sempre explícito: o dono do padrão e da faixa é o
+   * `settings-contract.js`, não este módulo. Um limite ausente ou inválido não
+   * esconde nada, em vez de criar uma terceira cópia da política.
    */
-  function shouldHideAge(seconds, maxDays = 3) {
+  function shouldHideAge(seconds, maxDays) {
     return (
       typeof seconds === 'number' &&
       Number.isFinite(seconds) &&
+      typeof maxDays === 'number' &&
+      Number.isFinite(maxDays) &&
+      maxDays > 0 &&
       seconds > maxDays * DAY_SECONDS
     );
   }
 
   /** Atalho: o texto do card descreve uma publicação mais velha que o limite? */
-  function shouldHide(text, maxDays = 3) {
+  function shouldHide(text, maxDays) {
     return shouldHideAge(parseAge(text), maxDays);
   }
 
   root.YTIAgeFilter = {
     DAY_SECONDS,
-    MAX_AGE_DAYS: 3,
     ACTION_WORDS,
     UNIT_SECONDS,
     parseAge,

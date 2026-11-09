@@ -15,6 +15,10 @@ createContext(sandbox);
 runInContext(source, sandbox, { filename: 'age-core.js' });
 const core = sandbox.YTIAgeFilter ?? runInContext('globalThis.YTIAgeFilter', sandbox);
 
+// O limite não mora mais no `age-core.js`: quem chama passa o valor que veio do
+// `settings-contract.js`. A suíte usa o mesmo padrão de 3 dias do contrato.
+const MAX_AGE_DAYS = 3;
+
 let failures = 0;
 
 function check(label, condition, detail = '') {
@@ -32,7 +36,7 @@ function checkAge(label, text, expected) {
 }
 
 function checkHide(label, text, expected) {
-  const actual = core.shouldHide(text);
+  const actual = core.shouldHide(text, MAX_AGE_DAYS);
   check(label, actual === expected, `esperado ${expected}, veio ${String(actual)}`);
 }
 
@@ -122,13 +126,15 @@ check('7 dias no limite ficam', core.shouldHide('7 days ago', 7) === false);
 check('8 dias acima do limite somem', core.shouldHide('8 days ago', 7) === true);
 
 process.stdout.write('\nshouldHideAge:\n');
-check('null fica', core.shouldHideAge(null) === false);
-check('zero fica', core.shouldHideAge(0) === false);
-check('3 dias fica', core.shouldHideAge(259200) === false);
-check('3 dias + 1 s some', core.shouldHideAge(259201) === true);
-check('4 dias some', core.shouldHideAge(345600) === true);
-check('NaN fica', core.shouldHideAge(Number.NaN) === false);
-check('infinito fica', core.shouldHideAge(Number.POSITIVE_INFINITY) === false);
+check('o core não declara um limite padrão', core.MAX_AGE_DAYS === undefined);
+check('null fica', core.shouldHideAge(null, MAX_AGE_DAYS) === false);
+check('zero fica', core.shouldHideAge(0, MAX_AGE_DAYS) === false);
+check('3 dias fica', core.shouldHideAge(259200, MAX_AGE_DAYS) === false);
+check('3 dias + 1 s some', core.shouldHideAge(259201, MAX_AGE_DAYS) === true);
+check('4 dias some', core.shouldHideAge(345600, MAX_AGE_DAYS) === true);
+check('NaN fica', core.shouldHideAge(Number.NaN, MAX_AGE_DAYS) === false);
+check('infinito fica', core.shouldHideAge(Number.POSITIVE_INFINITY, MAX_AGE_DAYS) === false);
+check('limite ausente não esconde', core.shouldHideAge(345600) === false);
 
 process.stdout.write(
   failures === 0

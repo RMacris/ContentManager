@@ -36,6 +36,17 @@
   const channelRules = typeof globalThis !== 'undefined' ? globalThis.YTIChannelRules : null;
   if (channelRules === null || channelRules === undefined) return;
 
+  // O schema das preferências (padrão e faixa da idade) vem do contrato
+  // compartilhado, carregado antes deste arquivo. O filtro não mantém uma
+  // segunda cópia de 1..365 nem do padrão 3.
+  const settingsContract = typeof globalThis !== 'undefined' ? globalThis.YTISettingsContract : null;
+  if (settingsContract === null || settingsContract === undefined) return;
+
+  // O feed único das preferências vem de `content-settings.js`, carregado
+  // antes deste arquivo; o filtro não lê o storage nem registra listener.
+  const settingsFeed = typeof globalThis !== 'undefined' ? globalThis.YTIContentSettings : null;
+  if (settingsFeed === null || settingsFeed === undefined) return;
+
   // A leitura do DOM do YouTube vem de `youtube-dom.js`, carregado antes deste
   // arquivo; o filtro classifica o modelo lido e decide esconder ou mostrar.
   const youtubeDom = typeof globalThis !== 'undefined' ? globalThis.YTIYouTubeDom : null;
@@ -84,15 +95,11 @@
   let blockedKeywords = [];
   let blockedChannels = [];
   let allowedChannels = [];
-  let allowedSignature = '';
-  let maxAgeDays = core.MAX_AGE_DAYS;
-  let settingsRevision = 0;
+  let maxAgeDays = settingsContract.DEFAULT_SETTINGS.maxAgeDays;
   let started = false;
   let runtime = null;
   let cache = new WeakMap();
   let keywordCache = new WeakMap();
-  let collectedChannels = new Map();
-  let lastCatalogSignature = '';
 
   /* --------------------------------------------------------------- preferência */
 
@@ -101,83 +108,22 @@
     return hidingAged || hidingPromoted || blockingKeywords;
   }
 
-  /** Lê os interruptores; qualquer falha cai no padrão ligado. */
-  function readSetting(done) {
-    try {
-      chrome.storage.sync.get(
-        {
-          hideOldVideos: true,
-          hideGamesAndAds: true,
-          maxAgeDays: core.MAX_AGE_DAYS,
-          blockKeywords: false,
-          blockedKeywords: [],
-          blockedChannels: [],
-          allowedChannels: [],
-        },
-        (settings) => {
-          const failed = typeof chrome.runtime !== 'undefined' && chrome.runtime.lastError;
-          if (failed) {
-            done({ aged: true, promoted: true, ageLimit: core.MAX_AGE_DAYS });
-            return;
-          }
-          done({
-            aged: settings.hideOldVideos !== false,
-            promoted: settings.hideGamesAndAds !== false,
-            ageLimit: settings.maxAgeDays,
-            blockKeywords: settings.blockKeywords === true,
-            keywords: settings.blockedKeywords,
-            channels: settings.blockedChannels,
-            allowed: settings.allowedChannels,
-          });
-        },
-      );
-    } catch (error) {
-      done({ aged: true, promoted: true, ageLimit: core.MAX_AGE_DAYS });
-    }
-  }
-
   /**
-   * Liga/desliga ao vivo. Desligar tudo desfaz na hora o que estava escondido;
-   * qualquer mudança recalcula a página inteira.
+   * Aplica o estado que o feed já normalizou. Desligar tudo desfaz na hora o
+   * que estava escondido; qualquer mudança recalcula a página inteira.
    */
-  function setFlags(next) {
-    const nextAged = next.aged !== false;
-    const nextPromoted = next.promoted !== false;
-    const nextMaxAgeDays = normalizeMaxAgeDays(next.ageLimit);
-    const nextBlockingKeywords = next.blockKeywords === true;
-    const nextKeywords = channelRules.normalizeList(next.keywords);
-    const nextChannels = channelRules.normalizeList(next.channels);
-    const nextAllowed = channelRules.normalizeAllowed(next.allowed);
-    const nextAllowedSignature = channelRules.allowedSignature(nextAllowed);
-    if (
-      nextAged === hidingAged &&
-      nextPromoted === hidingPromoted &&
-      nextMaxAgeDays === maxAgeDays &&
-      nextBlockingKeywords === blockingKeywords &&
-      nextKeywords === blockedKeywords &&
-      nextChannels === blockedChannels &&
-      nextAllowedSignature === allowedSignature
-    ) {
-      if (isActive()) scheduleScan();
-      return;
-    }
-    hidingAged = nextAged;
-    hidingPromoted = nextPromoted;
-    maxAgeDays = nextMaxAgeDays;
-    blockingKeywords = nextBlockingKeywords;
-    blockedKeywords = nextKeywords;
-    blockedChannels = nextChannels;
-    allowedChannels = nextAllowed;
-    allowedSignature = nextAllowedSignature;
+  function applySettings(settings) {
+    hidingAged = settings.hideOldVideos;
+    hidingPromoted = settings.hideGamesAndAds;
+    maxAgeDays = settings.maxAgeDays;
+    blockingKeywords = settings.blockKeywords;
+    blockedKeywords = settings.blockedKeywords;
+    blockedChannels = settings.blockedChannels;
+    allowedChannels = settings.allowedChannels;
     cache = new WeakMap();
     keywordCache = new WeakMap();
     if (isActive()) scheduleScan();
     else unhideAll();
-  }
-
-  function normalizeMaxAgeDays(value) {
-    const days = Number(value);
-    return Number.isInteger(days) && days >= 1 && days <= 365 ? days : core.MAX_AGE_DAYS;
   }
 
   /* ------------------------------------------------------------------- páginas */
@@ -199,16 +145,11 @@
   }
 
   /**
-   * Há algo a fazer nesta página? Filtros ligados sempre; na página de
-   * inscrições também, porque é de lá que sai o catálogo dos sempre
-   * recomendados (mesmo com os filtros desligados).
+   * Há algo a fazer nesta página? Só os filtros ligados: a coleta da página de
+   * inscrições tem o próprio adaptador (`channel-catalog.js`).
    */
   function shouldScan() {
-    return isActive() || isChannelsPage();
-  }
-
-  function isChannelsPage() {
-    return youtubeDom.isChannelsPage(location.pathname);
+    return isActive();
   }
 
   function scan() {
@@ -217,8 +158,6 @@
       unhideAll();
       return;
     }
-
-    if (isChannelsPage()) collectSubscribedChannels();
 
     const cards = document.querySelectorAll(youtubeDom.selectors.card);
     for (let i = 0; i < cards.length; i += 1) {
@@ -309,50 +248,6 @@
       if (channelRules.isAllowedChannel(channels[i].name, channels[i].handle, allowedChannels)) return true;
     }
     return false;
-  }
-
-  /**
-   * Na página de inscrições, guarda o que os cards de canal mostram. A varredura
-   * roda de novo a cada card novo (scroll), e o service worker mescla com o
-   * catálogo que já estava guardado.
-   */
-  function collectSubscribedChannels() {
-    const items = document.querySelectorAll(youtubeDom.selectors.subscriptionCard);
-    let changed = false;
-
-    for (let i = 0; i < items.length; i += 1) {
-      const channel = youtubeDom.readSubscribedChannel(items[i]);
-      if (channel === null) continue;
-
-      const key = (channel.handle || channel.name).toLowerCase();
-      const previous = collectedChannels.get(key);
-      if (
-        previous === undefined ||
-        previous.name !== channel.name ||
-        previous.handle !== channel.handle ||
-        previous.avatarUrl !== channel.avatarUrl
-      ) {
-        collectedChannels.set(key, {
-          name: channel.name,
-          handle: channel.handle,
-          avatarUrl: channel.avatarUrl,
-        });
-        changed = true;
-      }
-    }
-
-    if (!changed) return;
-    const signature = Array.from(collectedChannels.keys()).sort().join('\u0001');
-    if (signature === lastCatalogSignature) return;
-    lastCatalogSignature = signature;
-
-    try {
-      chrome.runtime
-        .sendMessage({ action: 'saveChannelCatalog', channels: Array.from(collectedChannels.values()) })
-        .catch(() => {});
-    } catch (error) {
-      // Contexto invalidado (extensão recarregada): a próxima injeção resolve.
-    }
   }
 
   function evaluateCard(card) {
@@ -468,45 +363,7 @@
     if (started) return;
     started = true;
 
-    const initialSettingsRevision = settingsRevision;
-    readSetting((next) => {
-      if (settingsRevision !== initialSettingsRevision) return;
-      setFlags(next);
-    });
-
-    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.onChanged) {
-      chrome.storage.onChanged.addListener((changes, area) => {
-        if (area !== 'sync') return;
-        const agedChange = changes.hideOldVideos;
-        const promotedChange = changes.hideGamesAndAds;
-        const ageLimitChange = changes.maxAgeDays;
-        const keywordToggleChange = changes.blockKeywords;
-        const keywordsChange = changes.blockedKeywords;
-        const channelsChange = changes.blockedChannels;
-        const allowedChange = changes.allowedChannels;
-        if (
-          !agedChange &&
-          !promotedChange &&
-          !ageLimitChange &&
-          !keywordToggleChange &&
-          !keywordsChange &&
-          !channelsChange &&
-          !allowedChange
-        ) {
-          return;
-        }
-        settingsRevision += 1;
-        setFlags({
-          aged: agedChange ? agedChange.newValue : hidingAged,
-          promoted: promotedChange ? promotedChange.newValue : hidingPromoted,
-          ageLimit: ageLimitChange ? ageLimitChange.newValue : maxAgeDays,
-          blockKeywords: keywordToggleChange ? keywordToggleChange.newValue : blockingKeywords,
-          keywords: keywordsChange ? keywordsChange.newValue : blockedKeywords,
-          channels: channelsChange ? channelsChange.newValue : blockedChannels,
-          allowed: allowedChange ? allowedChange.newValue : allowedChannels,
-        });
-      });
-    }
+    settingsFeed.subscribe(applySettings);
 
     runtime = runtimeCore.register({
       scan,

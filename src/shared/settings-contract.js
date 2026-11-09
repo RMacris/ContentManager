@@ -3,8 +3,9 @@
  *
  * Dono único dos padrões, limites, chaves e normalização. Script clássico de
  * propósito: o popup o carrega depois de `keyword-core.js` e
- * `channel-rules.js` e antes de `popup.js`; o `background/settings.js` importa
- * o mesmo arquivo e lê a API pelo global.
+ * `channel-rules.js` e antes de `popup.js`; os content scripts o carregam
+ * depois de `channel-rules.js`, e o `background/settings.js` importa o mesmo
+ * arquivo e lê a API pelo global.
  *
  * Nada aqui toca `chrome` nem o DOM: a tela é um adaptador e a persistência
  * (ler, validar e gravar) continua em `background/settings.js`. A igualdade
@@ -156,16 +157,6 @@
     return unique;
   }
 
-  /** O candidato já está na lista pela regra do casamento? */
-  function hasListItem(values, candidate) {
-    return channelRules().hasListItem(values, candidate);
-  }
-
-  /** Dois registros da allowlist são o mesmo canal? */
-  function sameChannel(a, b) {
-    return channelRules().sameChannel(a, b);
-  }
-
   root.YTISettingsContract = Object.freeze({
     DEFAULT_SETTINGS,
     LIMITS,
@@ -180,7 +171,5 @@
     normalizeAllowedList,
     normalizeListForSave,
     normalizeAllowedForSave,
-    hasListItem,
-    sameChannel,
   });
 })(typeof globalThis !== 'undefined' ? globalThis : this);
