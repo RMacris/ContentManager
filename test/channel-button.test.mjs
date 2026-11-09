@@ -41,6 +41,47 @@ test('the channel button sits next to the channel name and toggles the block lis
   assert.equal(host.shadowRoot.label.textContent, 'Bloquear');
 });
 
+test('the chip flips on click, before the save resolves, and rolls back when the save fails', async () => {
+  const run = runButton({ deferredSave: true });
+  const host = findHost(run.container);
+  assert.ok(host);
+  assert.equal(host.getAttribute('data-blocked'), 'false');
+
+  host.shadowRoot.button.dispatchEvent('click');
+  await flushAsync();
+
+  assert.equal(run.pending.length, 1, 'the save is still waiting for the service worker');
+  assert.equal(host.getAttribute('data-blocked'), 'true', 'the chip flips before the save resolves');
+  assert.equal(host.shadowRoot.label.textContent, 'Desbloquear');
+  assert.equal(host.shadowRoot.button.disabled, true, 'the chip stays pending while saving');
+
+  run.pending[0].reject(new Error('offline'));
+  await flushAsync();
+
+  assert.equal(host.getAttribute('data-blocked'), 'false', 'a failed save rolls the chip back');
+  assert.equal(host.shadowRoot.label.textContent, 'Bloquear');
+  assert.equal(host.shadowRoot.button.disabled, false);
+  assert.equal(run.warnings.length, 1, 'the failure stays visible in the console');
+});
+
+test('unblocking also switches the chip before the save resolves', async () => {
+  const run = runButton({ blockedChannels: ['Rick Astley'], deferredSave: true });
+  const host = findHost(run.container);
+  assert.equal(host.getAttribute('data-blocked'), 'true');
+
+  host.shadowRoot.button.dispatchEvent('click');
+  await flushAsync();
+
+  assert.equal(host.getAttribute('data-blocked'), 'false', 'the chip unblocks before the save resolves');
+  assert.deepEqual([...run.messages[0].patch.blockedChannels], []);
+
+  run.pending[0].resolve();
+  await flushAsync();
+
+  assert.equal(host.getAttribute('data-blocked'), 'false', 'the saved list keeps the chip unblocked');
+  assert.equal(host.shadowRoot.label.textContent, 'Bloquear');
+});
+
 test('a storage change and the allowlist update every injected button', async () => {
   const run = runButton();
   const host = findHost(run.container);
@@ -108,11 +149,13 @@ function runButton({
   surface = 'watch',
   pageTitle = null,
   pathname = '/watch',
+  deferredSave = false,
 } = {}) {
   const container = createChannelContainer('Rick Astley', surface);
   const activeLockup = lockup ?? (withLockup ? createLockup('Retro Pulse') : null);
   const document = new FakeDocument(container, activeLockup, pageTitle);
-  const backend = createChrome(blockedChannels, allowedChannels);
+  const backend = createChrome(blockedChannels, allowedChannels, { deferredSave });
+  const warnings = [];
   const timers = [];
   const intervals = [];
   const sandbox = {
@@ -133,12 +176,27 @@ function runButton({
       return intervals.length;
     },
     clearInterval() {},
-    console,
+    console: {
+      ...console,
+      warn(...args) {
+        warnings.push(args);
+      },
+    },
   };
 
   runInNewContext(`${keywordCore}\n${channelRules}\n${channelButton}`, sandbox, { filename: 'channel-button.js' });
   flushTimers(timers);
-  return { ...backend, container, lockup: activeLockup, pageTitle: document.pageTitle, document, sandbox, timers, intervals };
+  return {
+    ...backend,
+    container,
+    lockup: activeLockup,
+    pageTitle: document.pageTitle,
+    document,
+    sandbox,
+    timers,
+    intervals,
+    warnings,
+  };
 }
 
 function findHost(container) {
@@ -232,28 +290,42 @@ function createLockup(name) {
   return lockup;
 }
 
-function createChrome(blockedChannels, allowedChannels) {
+function createChrome(blockedChannels, allowedChannels, { deferredSave = false } = {}) {
   const state = {
     blockedChannels: [...blockedChannels],
     allowedChannels: [...allowedChannels],
   };
   const messages = [];
   const listeners = [];
+  const pending = [];
+
+  const save = (message) => {
+    state.blockedChannels = [...message.patch.blockedChannels];
+    return {
+      action: 'saveSettings',
+      ok: true,
+      settings: {
+        blockedChannels: [...state.blockedChannels],
+        allowedChannels: [...state.allowedChannels],
+      },
+    };
+  };
+
   const chrome = {
     runtime: {
       id: 'extension-id',
       lastError: null,
-      async sendMessage(message) {
+      sendMessage(message) {
         messages.push(message);
-        state.blockedChannels = [...message.patch.blockedChannels];
-        return {
-          action: 'saveSettings',
-          ok: true,
-          settings: {
-            blockedChannels: [...state.blockedChannels],
-            allowedChannels: [...state.allowedChannels],
-          },
-        };
+        if (!deferredSave) return Promise.resolve(save(message));
+        return new Promise((resolve, reject) => {
+          pending.push({
+            resolve() {
+              resolve(save(message));
+            },
+            reject,
+          });
+        });
       },
     },
     storage: {
@@ -273,7 +345,7 @@ function createChrome(blockedChannels, allowedChannels) {
       },
     },
   };
-  return { chrome, messages, listeners, state };
+  return { chrome, messages, listeners, state, pending };
 }
 
 class FakeShadow {
