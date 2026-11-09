@@ -10,6 +10,9 @@
  * fala com a rede; a única escrita é a mensagem para o service worker salvar
  * a lista no chrome.storage. Canais da allowlist não ganham o botão: eles
  * nunca são filtrados, então bloquear ali seria uma promessa falsa.
+ *
+ * A leitura do DOM — onde o nome do canal aparece, o handle e o ponto de
+ * montagem — mora em `youtube-dom.js`. Aqui ficam só o desenho e o clique.
  */
 (function () {
   'use strict';
@@ -18,6 +21,11 @@
   // arquivo. Sem elas não há como decidir allowlist nem blocklist.
   const channelRules = typeof globalThis !== 'undefined' ? globalThis.YTIChannelRules : null;
   if (channelRules === null || channelRules === undefined) return;
+
+  // A leitura do DOM do YouTube vem de `youtube-dom.js`, carregado antes deste
+  // arquivo; o chip recebe o alvo lido e só se posiciona.
+  const youtubeDom = typeof globalThis !== 'undefined' ? globalThis.YTIYouTubeDom : null;
+  if (youtubeDom === null || youtubeDom === undefined) return;
 
   // O ciclo da página vem de `content-runtime.js`, carregado antes deste
   // arquivo; o chip só registra o próprio scan e a limpeza dos botões.
@@ -36,55 +44,6 @@
   const INSTANCE_ID = Math.random().toString(36).slice(2);
   const HOST_SELECTOR = '.' + HOST_CLASS;
   const INSTANCE_ATTRIBUTE = 'data-yti-instance';
-
-  /** O link do canal: o nome do dono, dos cards e do cabeçalho do canal. */
-  const CHANNEL_LINK_SELECTOR = [
-    'a[href^="/@"]',
-    'a[href*="/channel/"]',
-    'a[href*="/c/"]',
-    'a[href*="/user/"]',
-  ].join(',');
-
-  /** Cards de vídeo: o botão compacto só aparece no hover. */
-  const CARD_SELECTOR = [
-    'ytd-video-renderer',
-    'ytd-rich-item-renderer',
-    'ytd-grid-video-renderer',
-    'ytd-compact-video-renderer',
-    'ytd-playlist-video-renderer',
-    'ytd-playlist-panel-video-renderer',
-    'ytd-reel-item-renderer',
-    'ytd-rich-grid-media',
-    'yt-lockup-view-model',
-  ].join(',');
-
-  /** Onde o nome grande do canal mora: dono do vídeo e cabeçalho do canal. */
-  const HEADER_SELECTOR = [
-    'ytd-video-owner-renderer',
-    'ytd-watch-metadata #owner',
-    'ytd-channel-header-renderer',
-    'ytd-c4-tabbed-header-renderer',
-    'yt-page-header-renderer',
-    'ytd-reel-video-renderer',
-    'ytd-reel-player-header-renderer',
-    'ytd-shorts',
-    '#channel-header',
-  ].join(',');
-
-  /** O título da página de canal, que o layout novo tirou do `ytd-channel-name`. */
-  const PAGE_HEADER_TITLE_SELECTOR = 'yt-page-header-renderer h1';
-
-  /** O lockup novo do YouTube: o nome do canal virou texto, não link. */
-  const LOCKUP_SELECTOR = 'yt-lockup-view-model';
-  const LOCKUP_ROW_SELECTOR = '.ytContentMetadataViewModelMetadataRow';
-  const LOCKUP_NAME_SELECTOR = '.ytContentMetadataViewModelMetadataText';
-  const LOCKUP_BADGE_SELECTOR = [
-    '.ytIconWrapperHost',
-    '.ytContentMetadataViewModelIcon',
-    'ytd-badge-supported-renderer',
-    'badge-shape',
-  ].join(',');
-  const LOCKUP_AVATAR_SELECTOR = '.ytLockupMetadataViewModelAvatar, yt-avatar-shape';
 
   let blockedChannels = [];
   let allowedChannels = [];
@@ -194,10 +153,6 @@
   `;
 
   /* --------------------------------------------------------------- utilidades */
-
-  function isVisible(node) {
-    return Boolean(node) && typeof node.getClientRects === 'function' && node.getClientRects().length > 0;
-  }
 
   /** API de depuração; toda a política de lista mora em `channel-rules.js`. */
   globalThis.YTIChannelButton = {
@@ -329,107 +284,42 @@
     if (parent !== null && parent !== undefined) parent.appendChild(style);
   }
 
-  function channelNameFrom(container, link) {
-    const text = container.querySelector('#text');
-    if (text !== null) {
-      const value = channelRules.cleanText(text.textContent);
-      if (value !== '') return value;
+  /** Põe o chip no ponto que a leitura indicou. */
+  function placeHost(host, target) {
+    if (target.parent === null || target.parent === undefined) return;
+    if (target.after === null) {
+      if (host.parentNode !== target.parent) target.parent.appendChild(host);
+      return;
     }
-    return channelRules.cleanText(link.textContent);
-  }
-
-  function wantsClassicContainer(container) {
-    if (container.closest(CARD_SELECTOR) !== null) return true;
-    if (container.closest(HEADER_SELECTOR) !== null) return true;
-    return false;
+    if (host.parentNode === target.parent && host.previousElementSibling === target.after) return;
+    target.parent.insertBefore(host, target.after.nextSibling);
   }
 
   function scanClassicContainers() {
-    const containers = document.querySelectorAll('ytd-channel-name');
+    const containers = document.querySelectorAll(youtubeDom.selectors.channelContainer);
     for (let i = 0; i < containers.length; i += 1) {
-      const container = containers[i];
-      if (!isVisible(container) || !wantsClassicContainer(container)) continue;
-      const link = container.querySelector(CHANNEL_LINK_SELECTOR);
-      if (link === null) continue;
-      const name = channelNameFrom(container, link);
-      if (!channelRules.isUsableChannelName(name)) continue;
-      const handle = channelRules.handleFromHref(link.getAttribute('href'));
-      const surface = container.closest(CARD_SELECTOR) !== null ? 'card' : 'watch';
-      ensureHost(container, name, handle, surface, (host) => {
-        if (host.parentNode !== container) container.appendChild(host);
-      });
-    }
-  }
-
-  /**
-   * O lockup novo não tem link no nome do canal. A primeira linha de metadados
-   * é o nome; a linha de playlist ("YouTube Playlist") não tem badge, avatar
-   * nem as partes de views/idade, então fica de fora.
-   */
-  function lockupTarget(lockup) {
-    const row = lockup.querySelector(LOCKUP_ROW_SELECTOR);
-    if (row === null || !isVisible(row)) return null;
-    const nameNode = row.querySelector(LOCKUP_NAME_SELECTOR);
-    if (nameNode === null) return null;
-
-    const hasBadge = row.querySelector(LOCKUP_BADGE_SELECTOR) !== null;
-    const hasAvatar = lockup.querySelector(LOCKUP_AVATAR_SELECTOR) !== null;
-    // Sem avatar nem selo, a primeira linha pode ser "YouTube Playlist" ou
-    // outra legenda que não é canal. O card clássico cobre o resto.
-    if (!hasBadge && !hasAvatar) return null;
-
-    const name = channelRules.cleanText(nameNode.textContent);
-    if (!channelRules.isUsableChannelName(name)) return null;
-
-    let anchor = nameNode;
-    const next = nameNode.nextElementSibling;
-    if (next !== null && typeof next.matches === 'function' && next.matches(LOCKUP_BADGE_SELECTOR)) {
-      anchor = next;
-    }
-    return { row, anchor, name };
-  }
-
-  function isChannelPage() {
-    const path = String(location.pathname || '');
-    return (
-      path.indexOf('/@') === 0 ||
-      path.indexOf('/channel/') === 0 ||
-      path.indexOf('/c/') === 0 ||
-      path.indexOf('/user/') === 0
-    );
-  }
-
-  function pageHandle() {
-    return channelRules.handleFromHref(String(location.pathname || ''));
-  }
-
-  function scanPageHeader() {
-    if (!isChannelPage()) return;
-    const titles = document.querySelectorAll(PAGE_HEADER_TITLE_SELECTOR);
-    for (let i = 0; i < titles.length; i += 1) {
-      const title = titles[i];
-      if (!isVisible(title)) continue;
-      const name = channelRules.cleanText(title.textContent);
-      if (!channelRules.isUsableChannelName(name)) continue;
-      ensureHost(title, name, pageHandle(), 'watch', (host) => {
-        if (host.parentNode !== title) title.appendChild(host);
-      });
+      const target = youtubeDom.readChannelTarget(containers[i], { kind: 'classic' });
+      if (target === null) continue;
+      ensureHost(target.key, target.name, target.handle, target.surface, (host) => placeHost(host, target));
     }
   }
 
   function scanLockups() {
-    const lockups = document.querySelectorAll(LOCKUP_SELECTOR);
+    const lockups = document.querySelectorAll(youtubeDom.selectors.lockup);
     for (let i = 0; i < lockups.length; i += 1) {
-      const lockup = lockups[i];
-      if (!isVisible(lockup)) continue;
-      const target = lockupTarget(lockup);
+      const target = youtubeDom.readChannelTarget(lockups[i], { kind: 'lockup' });
       if (target === null) continue;
+      ensureHost(target.key, target.name, target.handle, target.surface, (host) => placeHost(host, target));
+    }
+  }
 
-      ensureHost(target.row, target.name, '', 'card', (host) => {
-        if (host.parentNode === target.row && host.previousElementSibling === target.anchor) return;
-        const row = target.anchor.parentNode;
-        if (row !== null && row !== undefined) row.insertBefore(host, target.anchor.nextSibling);
-      });
+  function scanPageHeader() {
+    const titles = document.querySelectorAll(youtubeDom.selectors.pageHeaderTitle);
+    const pathname = String(location.pathname || '');
+    for (let i = 0; i < titles.length; i += 1) {
+      const target = youtubeDom.readChannelTarget(titles[i], { kind: 'page', pathname });
+      if (target === null) continue;
+      ensureHost(target.key, target.name, target.handle, target.surface, (host) => placeHost(host, target));
     }
   }
 

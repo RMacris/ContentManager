@@ -242,6 +242,7 @@ src/
 │   ├── age-core.js        lê a idade do card e decide o limite (script clássico, sem DOM)
 │   ├── keyword-core.js    casa palavras-chave e canais no texto do card (script clássico, sem DOM)
 │   ├── channel-rules.js   normaliza listas e resolve allowlist/blocklist (script clássico, sem DOM)
+│   ├── youtube-dom.js     lê card, alvo do chip e card de inscrição (script clássico)
 │   ├── content-runtime.js ciclo da página: observer, navegação, visibilidade, varredura e guarda de órfão
 │   ├── channel-button.js  chip de bloqueio ao lado do nome do canal
 │   └── age-filter.js      esconde/mostra os cards no site do YouTube
@@ -302,6 +303,11 @@ conter nos nomes de canal. O `keyword-core.js` também é puro e roda em `vm`.
 As **listas de canais** têm uma suíte só delas (`test/channel-rules.test.mjs`), e os adaptadores
 (content scripts, popup e settings) usam a mesma regra: normalização, identidade por handle ou nome,
 allowlist/blocklist e o próximo estado ao clicar no chip.
+
+O **DOM do YouTube** tem uma leitura só (`youtube-dom.js`) e uma suíte com fixtures
+(`test/youtube-dom.test.mjs`): card clássico, lockup, anúncio, Shorts e página de canal. O filtro
+classifica o modelo lido e o chip se posiciona a partir dele; uma mudança de layout é ensinada uma
+vez. As fixtures rodam em `vm`, com um seletor mínimo que cobre as formas usadas no layout.
 
 O **botão ao lado do nome do canal** tem suíte própria (`test/channel-button.test.mjs`): o chip
 aparece no dono do vídeo, o clique adiciona e remove `blockedChannels` pelo service worker, a
