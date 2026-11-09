@@ -112,6 +112,37 @@ check(
   ),
 );
 
+process.stdout.write('\nscripts do popup:\n');
+const popupHtml = readFileSync(join(root, 'src/popup/popup.html'), 'utf8');
+const popupScripts = [...popupHtml.matchAll(/<script\s+src="([^"]+)"><\/script>/g)].map(
+  (match) => match[1],
+);
+for (const src of popupScripts) {
+  checkFile(`o script ${src} existe`, join('src/popup', src));
+}
+const popupIndex = (src) => popupScripts.indexOf(src);
+check(
+  'keyword-core.js vem antes de channel-rules.js',
+  popupIndex('../content/keyword-core.js') !== -1 &&
+    popupIndex('../content/keyword-core.js') < popupIndex('../content/channel-rules.js'),
+  popupScripts.join(', '),
+);
+check(
+  'channel-rules.js vem antes de popup.js',
+  popupIndex('../content/channel-rules.js') !== -1 &&
+    popupIndex('../content/channel-rules.js') < popupIndex('popup.js'),
+  popupScripts.join(', '),
+);
+if (popupIndex('../shared/settings-contract.js') !== -1) {
+  check(
+    'settings-contract.js vem entre channel-rules.js e popup.js',
+    popupIndex('../content/channel-rules.js') < popupIndex('../shared/settings-contract.js') &&
+      popupIndex('../shared/settings-contract.js') < popupIndex('popup.js'),
+    popupScripts.join(', '),
+  );
+}
+check('popup.js é o último script do popup', popupScripts.at(-1) === 'popup.js', popupScripts.at(-1));
+
 process.stdout.write(
   failures === 0 ? '\nmanifesto da extensão: tudo certo\n' : `\nmanifesto da extensão: ${failures} falha(s)\n`,
 );
