@@ -102,7 +102,12 @@ check(
   (manifest.content_scripts || []).some(
     (entry) =>
       JSON.stringify(entry.js) ===
-      JSON.stringify(['src/content/age-core.js', 'src/content/keyword-core.js', 'src/content/age-filter.js']),
+      JSON.stringify([
+        'src/content/age-core.js',
+        'src/content/keyword-core.js',
+        'src/content/channel-button.js',
+        'src/content/age-filter.js',
+      ]),
   ),
 );
 

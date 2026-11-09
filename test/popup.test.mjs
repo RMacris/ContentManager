@@ -198,6 +198,7 @@ test('saving settings revives the filter in open YouTube tabs', async () => {
   assert.deepEqual(backend.injections[0].files, [
     'src/content/age-core.js',
     'src/content/keyword-core.js',
+    'src/content/channel-button.js',
     'src/content/age-filter.js',
   ]);
 });

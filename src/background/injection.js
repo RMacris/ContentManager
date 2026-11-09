@@ -15,6 +15,7 @@
 const FILTER_SCRIPTS = [
   'src/content/age-core.js',
   'src/content/keyword-core.js',
+  'src/content/channel-button.js',
   'src/content/age-filter.js',
 ];
 

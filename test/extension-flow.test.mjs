@@ -202,6 +202,7 @@ test('reloading the extension revives the filter in open YouTube tabs without a 
   assert.deepEqual(injectedTabs[0].files, [
     'src/content/age-core.js',
     'src/content/keyword-core.js',
+    'src/content/channel-button.js',
     'src/content/age-filter.js',
   ]);
 });

@@ -114,6 +114,7 @@ By understanding and using `.*`, you can effectively block a wide range of URLs 
 - **Age filter on youtube.com:** Recommendation cards older than the selected limit are hidden (3 days by default; configurable from 1 to 365 days) — home, subscriptions, search results, channels and the sidebar. Shorts, history, liked videos, watch later, playlists and the player are never filtered.
 - **Games and ads off the feed:** The playables shelf cards and the sponsored cards (in-feed, search and sidebar slots) are hidden too — they carry no age, so they go whole. Both filters are toggled in the popup, on by default.
 - **Keyword and channel blocking:** One toggle hides any video whose title carries one of the keywords (shipped with the known AI terms — ChatGPT, Claude, Gemini, OpenAI, IA, AI and friends, in pt and en) or whose channel is on the channel list. Both lists are editable in the popup as badges with an "×" to remove and Enter to add; matching ignores accents, case and punctuation. The hiding mechanism is the same as the age filter's.
+- **Block button on YouTube:** a small chip next to the channel name — on the video owner, the channel header and video cards on hover — adds or removes that channel from the block list without opening the popup.
 - **Always-recommended channels (allowlist):** Pick subscribed channels that must never be filtered — not by keyword, not by age, not even if the channel is also blocked. The subscriptions catalog is collected from `youtube.com/feed/channels` and stored locally; the popup searches it by name as you type, and selected channels become badges with photo and name. Adding or removing takes effect immediately in open tabs.
 
 ### How You Can Help
@@ -176,6 +177,20 @@ inscrições, busca, canal e coluna lateral; Shorts, histórico e listas salvas 
 (`blockedKeywords` e `blockedChannels`) moram em `chrome.storage.sync`, cabem 100 itens de até 60
 caracteres cada, e o interruptor (`blockKeywords`) vem desligado: é o usuário quem ativa.
 
+## Botão ao lado do nome do canal
+
+No YouTube, o nome do canal ganha um chip discreto: no dono do vídeo, no cabeçalho do canal e nos
+cards de vídeo (aí só com o card sob o mouse; em telas de toque, sempre). O chip mostra
+**Bloquear** e, quando o canal já está na lista, **Desbloquear**. Nos cards ele vira só o ícone de
+bloqueio, para não disputar espaço com o título.
+
+O botão não cria um segundo estado: ele lê e escreve a mesma lista `blockedChannels` do popup, pelo
+service worker. Por isso as duas telas ficam sincronizadas nos dois sentidos, inclusive quando o
+canal é editado nas configurações. Canais da **allowlist** não recebem o botão — eles nunca são
+filtrados, então oferecer o bloqueio ali seria uma promessa falsa. O interruptor **"Bloquear por
+palavras-chave e canais"** continua sendo quem decide se os cards somem: o chip só mexe na lista,
+como o campo do popup.
+
 ## Sempre recomendados (allowlist)
 
 A seção **Sempre recomendados** do popup define canais que **nunca** são filtrados — a allowlist vence
@@ -226,6 +241,7 @@ src/
 │   ├── block-guard.js     redireciona URLs bloqueadas (script clássico)
 │   ├── age-core.js        lê a idade do card e decide o limite (script clássico, sem DOM)
 │   ├── keyword-core.js    casa palavras-chave e canais no texto do card (script clássico, sem DOM)
+│   ├── channel-button.js  chip de bloqueio ao lado do nome do canal
 │   └── age-filter.js      esconde/mostra os cards no site do YouTube
 ├── popup/                 interface: bloqueio e configurações do filtro
 └── sidepanel/             abre o popup dentro do painel lateral do Chrome
@@ -280,6 +296,10 @@ ação ("Assistido há 5 dias" não é publicação), o que não é data ("N mil
 O **casamento de palavras-chave e canais** tem a sua (`test/keyword-core.test.mjs`): a normalização
 (acentos, maiúsculas, pontuação, zero-width), a comparação por palavra inteira nos títulos e a de
 conter nos nomes de canal. O `keyword-core.js` também é puro e roda em `vm`.
+
+O **botão ao lado do nome do canal** tem suíte própria (`test/channel-button.test.mjs`): o chip
+aparece no dono do vídeo, o clique adiciona e remove `blockedChannels` pelo service worker, a
+allowlist tira o botão e o layout novo do lockup recebe a versão compacta. O DOM falso roda em `vm`.
 
 ## Installation
 
