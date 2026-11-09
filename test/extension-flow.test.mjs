@@ -236,6 +236,7 @@ test('reloading the extension revives the filter in open YouTube tabs without a 
     'src/content/youtube-dom.js',
     'src/content/content-runtime.js',
     'src/content/content-settings.js',
+    'src/content/channel-catalog.js',
     'src/content/channel-button.js',
     'src/content/age-filter.js',
   ]);

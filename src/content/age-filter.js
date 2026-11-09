@@ -100,8 +100,6 @@
   let runtime = null;
   let cache = new WeakMap();
   let keywordCache = new WeakMap();
-  let collectedChannels = new Map();
-  let lastCatalogSignature = '';
 
   /* --------------------------------------------------------------- preferência */
 
@@ -147,16 +145,11 @@
   }
 
   /**
-   * Há algo a fazer nesta página? Filtros ligados sempre; na página de
-   * inscrições também, porque é de lá que sai o catálogo dos sempre
-   * recomendados (mesmo com os filtros desligados).
+   * Há algo a fazer nesta página? Só os filtros ligados: a coleta da página de
+   * inscrições tem o próprio adaptador (`channel-catalog.js`).
    */
   function shouldScan() {
-    return isActive() || isChannelsPage();
-  }
-
-  function isChannelsPage() {
-    return youtubeDom.isChannelsPage(location.pathname);
+    return isActive();
   }
 
   function scan() {
@@ -165,8 +158,6 @@
       unhideAll();
       return;
     }
-
-    if (isChannelsPage()) collectSubscribedChannels();
 
     const cards = document.querySelectorAll(youtubeDom.selectors.card);
     for (let i = 0; i < cards.length; i += 1) {
@@ -257,50 +248,6 @@
       if (channelRules.isAllowedChannel(channels[i].name, channels[i].handle, allowedChannels)) return true;
     }
     return false;
-  }
-
-  /**
-   * Na página de inscrições, guarda o que os cards de canal mostram. A varredura
-   * roda de novo a cada card novo (scroll), e o service worker mescla com o
-   * catálogo que já estava guardado.
-   */
-  function collectSubscribedChannels() {
-    const items = document.querySelectorAll(youtubeDom.selectors.subscriptionCard);
-    let changed = false;
-
-    for (let i = 0; i < items.length; i += 1) {
-      const channel = youtubeDom.readSubscribedChannel(items[i]);
-      if (channel === null) continue;
-
-      const key = (channel.handle || channel.name).toLowerCase();
-      const previous = collectedChannels.get(key);
-      if (
-        previous === undefined ||
-        previous.name !== channel.name ||
-        previous.handle !== channel.handle ||
-        previous.avatarUrl !== channel.avatarUrl
-      ) {
-        collectedChannels.set(key, {
-          name: channel.name,
-          handle: channel.handle,
-          avatarUrl: channel.avatarUrl,
-        });
-        changed = true;
-      }
-    }
-
-    if (!changed) return;
-    const signature = Array.from(collectedChannels.keys()).sort().join('\u0001');
-    if (signature === lastCatalogSignature) return;
-    lastCatalogSignature = signature;
-
-    try {
-      chrome.runtime
-        .sendMessage({ action: 'saveChannelCatalog', channels: Array.from(collectedChannels.values()) })
-        .catch(() => {});
-    } catch (error) {
-      // Contexto invalidado (extensão recarregada): a próxima injeção resolve.
-    }
   }
 
   function evaluateCard(card) {
