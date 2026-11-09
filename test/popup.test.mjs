@@ -4,10 +4,17 @@ import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 
 const popupHtml = readFileSync(new URL('../src/popup/popup.html', import.meta.url), 'utf8');
-const popupScript = readFileSync(new URL('../src/popup/popup.js', import.meta.url), 'utf8');
-const keywordCore = readFileSync(new URL('../src/content/keyword-core.js', import.meta.url), 'utf8');
-const channelRules = readFileSync(new URL('../src/content/channel-rules.js', import.meta.url), 'utf8');
-const settingsContract = readFileSync(new URL('../src/shared/settings-contract.js', import.meta.url), 'utf8');
+const popupScriptSources = [...popupHtml.matchAll(/<script\s+src="([^"]+)"><\/script>/g)].map(
+  (match) => match[1],
+);
+// A ordem real é a do popup.html: cada `<script src>` é resolvido a partir de
+// `src/popup/`, como o Chrome faz. Um teste que concatenasse os arquivos na mão
+// continuaria verde se o HTML esquecesse `keyword-core.js` ou invertesse a
+// ordem — e o popup abriria em branco.
+const popupScripts = popupScriptSources.map((src) => ({
+  src,
+  source: readFileSync(new URL(src, new URL('../src/popup/', import.meta.url)), 'utf8'),
+}));
 const backend = createBackend();
 
 before(async () => {
@@ -165,6 +172,30 @@ test('the popup loads the shared rules and contract before its own script', () =
   assert.ok(contractAt !== -1, 'settings-contract.js is loaded by the popup');
   assert.ok(rulesAt < contractAt, 'channel-rules.js loads before the contract');
   assert.ok(contractAt < popupAt, 'settings-contract.js loads before popup.js');
+});
+
+test('the popup runs the scripts in the order popup.html declares', () => {
+  const at = (src) => popupScriptSources.indexOf(src);
+  const keywordAt = at('../content/keyword-core.js');
+  const rulesAt = at('../content/channel-rules.js');
+  const contractAt = at('../shared/settings-contract.js');
+  const popupAt = at('popup.js');
+
+  assert.ok(keywordAt !== -1, 'popup.html loads keyword-core.js');
+  assert.ok(rulesAt !== -1, 'popup.html loads channel-rules.js');
+  assert.ok(popupAt !== -1, 'popup.html loads popup.js');
+  assert.ok(keywordAt < rulesAt, 'keyword-core.js loads before channel-rules.js');
+  assert.ok(rulesAt < popupAt, 'channel-rules.js loads before popup.js');
+  if (contractAt !== -1) {
+    assert.ok(rulesAt < contractAt, 'channel-rules.js loads before settings-contract.js');
+    assert.ok(contractAt < popupAt, 'settings-contract.js loads before popup.js');
+  }
+  assert.equal(popupScriptSources.at(-1), 'popup.js', 'popup.js is the last script');
+
+  const context = { chrome: backend.chrome, document: { addEventListener() {} }, location: { search: '' } };
+  runInNewContext(popupScripts.map((script) => script.source).join('\n'), context, { filename: 'popup.js' });
+  assert.equal(typeof context.YTIKeywordFilter, 'object', 'keyword-core.js defines its global');
+  assert.equal(typeof context.YTIChannelRules, 'object', 'channel-rules.js defines its global');
 });
 
 test('the channel add form stays above the long keyword badge list', () => {
@@ -540,7 +571,7 @@ function mountPopup() {
     },
   };
 
-  runInNewContext(`${keywordCore}\n${channelRules}\n${settingsContract}\n${popupScript}`, { chrome: backend.chrome, document }, { filename: 'popup.js' });
+  runInNewContext(popupScripts.map((script) => script.source).join('\n'), { chrome: backend.chrome, document }, { filename: 'popup.js' });
   return { document };
 }
 
