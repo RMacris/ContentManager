@@ -254,6 +254,36 @@ test('channel badges are added, saved and emptied through the same UI', async ()
   assert.equal(backend.state.blockKeywords, true);
 });
 
+test('an open popup reflects channels blocked and unblocked from the YouTube chip', async () => {
+  const popup = mountPopup();
+  await popup.document.dispatchEvent('DOMContentLoaded');
+
+  const badges = popup.document.getElementById('channelBadges');
+  assert.equal(popup.document.getElementById('channelCount').textContent, '0');
+  assert.equal(popup.document.getElementById('channelEmpty').hidden, false);
+
+  // O chip não abre o popup: ele manda o service worker salvar a mesma lista.
+  await backend.chrome.runtime.sendMessage({
+    action: 'saveSettings',
+    patch: { blockedChannels: ['Canal Ruim'] },
+  });
+
+  assert.deepEqual(backend.state.blockedChannels, ['Canal Ruim']);
+  assert.equal(popup.document.getElementById('channelCount').textContent, '1', 'the count follows the chip');
+  assert.equal(badges.children.length, 1);
+  assert.equal(badges.children[0].textContent, 'Canal Ruim');
+  assert.equal(popup.document.getElementById('channelEmpty').hidden, true);
+
+  await backend.chrome.runtime.sendMessage({
+    action: 'saveSettings',
+    patch: { blockedChannels: [] },
+  });
+
+  assert.equal(popup.document.getElementById('channelCount').textContent, '0', 'unblocking clears the badge too');
+  assert.equal(badges.children.length, 0);
+  assert.equal(popup.document.getElementById('channelEmpty').hidden, false);
+});
+
 test('saving settings revives the filter in open YouTube tabs', async () => {
   const popup = mountPopup();
   await popup.document.dispatchEvent('DOMContentLoaded');
