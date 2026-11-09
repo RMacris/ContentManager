@@ -32,6 +32,11 @@
   const runtimeCore = typeof globalThis !== 'undefined' ? globalThis.YTIContentRuntime : null;
   if (runtimeCore === null || runtimeCore === undefined) return;
 
+  // O feed único das preferências vem de `content-settings.js`, carregado
+  // antes deste arquivo; o chip não lê o storage nem registra listener.
+  const settingsFeed = typeof globalThis !== 'undefined' ? globalThis.YTIContentSettings : null;
+  if (settingsFeed === null || settingsFeed === undefined) return;
+
   // Recarregar a extensão órfã o script antigo: o `chrome.runtime.id` dele
   // apaga. A guarda devolve falso e a reinjeção (chrome.scripting) revive a
   // aba sem refresh, do mesmo jeito que o filtro de idade.
@@ -165,12 +170,12 @@
   /* --------------------------------------------------------- estado e desenho */
 
   function setBlockedChannels(values) {
-    blockedChannels = channelRules.normalizeList(values);
+    blockedChannels = values;
     refreshHosts();
   }
 
   function setAllowedChannels(values) {
-    allowedChannels = channelRules.normalizeAllowed(values);
+    allowedChannels = values;
     refreshHosts();
     scheduleScan();
   }
@@ -408,29 +413,22 @@
 
   /* ---------------------------------------------------------------- settings */
 
-  function readSettings() {
-    try {
-      chrome.storage.sync.get(
-        { blockedChannels: [], allowedChannels: [] },
-        (settings) => {
-          const failed = typeof chrome.runtime !== 'undefined' && chrome.runtime.lastError;
-          if (failed) return;
-          setBlockedChannels(settings.blockedChannels);
-          setAllowedChannels(settings.allowedChannels);
-        },
-      );
-    } catch (error) {
-      // Contexto invalidado: a próxima injeção revive o botão.
+  function applySettings(settings) {
+    if (channelRules.allowedSignature(settings.allowedChannels) !== channelRules.allowedSignature(allowedChannels)) {
+      setAllowedChannels(settings.allowedChannels);
+    }
+    if (!sameList(settings.blockedChannels, blockedChannels)) {
+      setBlockedChannels(settings.blockedChannels);
     }
   }
 
-  function listenForChanges() {
-    if (typeof chrome === 'undefined' || !chrome.storage || !chrome.storage.onChanged) return;
-    chrome.storage.onChanged.addListener((changes, area) => {
-      if (area !== 'sync') return;
-      if (changes.blockedChannels) setBlockedChannels(changes.blockedChannels.newValue);
-      if (changes.allowedChannels) setAllowedChannels(changes.allowedChannels.newValue);
-    });
+  /** A lista já normalizada mudou? Evita redesenhar o chip a cada preferência. */
+  function sameList(a, b) {
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i += 1) {
+      if (a[i] !== b[i]) return false;
+    }
+    return true;
   }
 
   /* -------------------------------------------------------------------- start */
@@ -441,8 +439,7 @@
 
     removeOldArtifacts();
     injectStyle();
-    readSettings();
-    listenForChanges();
+    settingsFeed.subscribe(applySettings);
     runtime = runtimeCore.register({
       scan,
       shouldScan,

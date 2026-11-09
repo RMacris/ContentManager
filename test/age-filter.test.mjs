@@ -6,8 +6,10 @@ import { runInNewContext } from 'node:vm';
 const ageCore = readFileSync(new URL('../src/content/age-core.js', import.meta.url), 'utf8');
 const keywordCore = readFileSync(new URL('../src/content/keyword-core.js', import.meta.url), 'utf8');
 const channelRules = readFileSync(new URL('../src/content/channel-rules.js', import.meta.url), 'utf8');
+const settingsContract = readFileSync(new URL('../src/shared/settings-contract.js', import.meta.url), 'utf8');
 const youtubeDom = readFileSync(new URL('../src/content/youtube-dom.js', import.meta.url), 'utf8');
 const contentRuntime = readFileSync(new URL('../src/content/content-runtime.js', import.meta.url), 'utf8');
+const contentSettings = readFileSync(new URL('../src/content/content-settings.js', import.meta.url), 'utf8');
 const ageFilter = readFileSync(new URL('../src/content/age-filter.js', import.meta.url), 'utf8');
 
 test('the YouTube filter applies the saved age limit and reacts to changes', () => {
@@ -54,7 +56,7 @@ test('the YouTube filter applies the saved age limit and reacts to changes', () 
     },
   };
 
-  runInNewContext(`${ageCore}\n${keywordCore}\n${channelRules}\n${youtubeDom}\n${contentRuntime}\n${ageFilter}`, {
+  runInNewContext(`${ageCore}\n${keywordCore}\n${channelRules}\n${settingsContract}\n${youtubeDom}\n${contentRuntime}\n${contentSettings}\n${ageFilter}`, {
     chrome,
     document,
     location: { pathname: '/' },
@@ -128,6 +130,116 @@ function createVideoCard(ageText) {
   };
 }
 
+test('the content filter takes its age bound and default from the shared contract', () => {
+  const withinBound = createVideoCard('há 364 dias');
+  const beyondBound = createVideoCard('há 366 dias');
+  const wide = runAgeLimitScenario({
+    contractSource: settingsContract,
+    maxAgeDays: 365,
+    cards: [withinBound, beyondBound],
+  });
+  wide.read();
+  flushTimers(wide.timers);
+  assert.equal(withinBound.style.display, '', '364 days stays inside the 365-day contract bound');
+  assert.equal(beyondBound.style.display, 'none', '366 days is outside the 365-day contract bound');
+
+  const twentyDays = createVideoCard('há 20 dias');
+  const narrowedContract = settingsContract.replace('max: 365', 'max: 30');
+  assert.notEqual(narrowedContract, settingsContract, 'the simulated contract change is applied');
+  const narrow = runAgeLimitScenario({
+    contractSource: narrowedContract,
+    maxAgeDays: 3,
+    cards: [twentyDays],
+  });
+  narrow.read();
+  flushTimers(narrow.timers);
+  assert.equal(twentyDays.style.display, 'none', 'a 20-day card is hidden at the contract default');
+
+  narrow.change({ maxAgeDays: { newValue: 60 } });
+  flushTimers(narrow.timers);
+  assert.equal(
+    twentyDays.style.display,
+    'none',
+    '60 is invalid under the narrowed contract and the filter falls back to the contract default 3',
+  );
+});
+
+function runAgeLimitScenario({ contractSource, maxAgeDays, cards }) {
+  const timers = [];
+  const storageListeners = [];
+  let read = () => {};
+
+  const document = {
+    documentElement: {},
+    visibilityState: 'visible',
+    addEventListener() {},
+    querySelectorAll(selector) {
+      if (selector.includes('data-yti-old')) return cards.filter((card) => card.getAttribute('data-yti-old') === '1');
+      if (selector === 'ytd-rich-shelf-renderer') return [];
+      return cards;
+    },
+    createTreeWalker(node) {
+      let index = 0;
+      return {
+        nextNode() {
+          if (index >= node.textParts.length) return null;
+          return { data: node.textParts[index++] };
+        },
+      };
+    },
+  };
+
+  const chrome = {
+    runtime: { lastError: null, id: 'extension-id' },
+    storage: {
+      sync: {
+        get(defaults, callback) {
+          read = () =>
+            callback({
+              ...defaults,
+              hideOldVideos: true,
+              hideGamesAndAds: false,
+              maxAgeDays,
+              blockKeywords: false,
+            });
+        },
+      },
+      onChanged: {
+        addListener(listener) {
+          storageListeners.push(listener);
+        },
+      },
+    },
+  };
+
+  runInNewContext(
+    `${ageCore}\n${keywordCore}\n${channelRules}\n${contractSource}\n${youtubeDom}\n${contentRuntime}\n${contentSettings}\n${ageFilter}`,
+    {
+      chrome,
+      document,
+      location: { pathname: '/' },
+      NodeFilter: { SHOW_TEXT: 4 },
+      MutationObserver: class {
+        observe() {}
+        disconnect() {}
+      },
+      setTimeout(callback) {
+        timers.push(callback);
+        return timers.length;
+      },
+      setInterval() {},
+    },
+  );
+
+  return {
+    timers,
+    read,
+    change(changes) {
+      storageListeners[0](changes, 'sync');
+    },
+  };
+}
+
 test('keyword and channel blocking reuse the age-filter hiding and undo on toggle-off', () => {
   const aiCard = createKeywordCard({ title: 'Testando o ChatGPT', channel: 'Tech Brasil' });
   const channelCard = createKeywordCard({ title: 'Vlog de gato', channel: 'Canal Ruim' });
@@ -181,7 +293,7 @@ test('keyword and channel blocking reuse the age-filter hiding and undo on toggl
     },
   };
 
-  runInNewContext(`${ageCore}\n${keywordCore}\n${channelRules}\n${youtubeDom}\n${contentRuntime}\n${ageFilter}`, {
+  runInNewContext(`${ageCore}\n${keywordCore}\n${channelRules}\n${settingsContract}\n${youtubeDom}\n${contentRuntime}\n${contentSettings}\n${ageFilter}`, {
     chrome,
     document,
     location: { pathname: '/' },
@@ -316,7 +428,7 @@ test('an unknown card layout still matches keywords using the whole card text', 
     },
   };
 
-  runInNewContext(`${ageCore}\n${keywordCore}\n${channelRules}\n${youtubeDom}\n${contentRuntime}\n${ageFilter}`, {
+  runInNewContext(`${ageCore}\n${keywordCore}\n${channelRules}\n${settingsContract}\n${youtubeDom}\n${contentRuntime}\n${contentSettings}\n${ageFilter}`, {
     chrome,
     document,
     location: { pathname: '/' },
@@ -345,13 +457,13 @@ test('a live filter is not duplicated; an orphaned one is revived by re-injectio
   const live = runFilterScripts({ runtimeId: 'extension-id' });
   assert.equal(live.storageListeners.length, 1);
   assert.equal(live.timers.length, 1, 'a live instance schedules its scans');
-  runInNewContext(`${ageCore}\n${keywordCore}\n${channelRules}\n${youtubeDom}\n${contentRuntime}\n${ageFilter}`, live.sandbox);
+  runInNewContext(`${ageCore}\n${keywordCore}\n${channelRules}\n${settingsContract}\n${youtubeDom}\n${contentRuntime}\n${contentSettings}\n${ageFilter}`, live.sandbox);
   assert.equal(live.storageListeners.length, 1, 're-running over a live instance does nothing');
 
   const orphaned = runFilterScripts({ runtimeId: undefined });
   assert.equal(orphaned.storageListeners.length, 1);
   assert.equal(orphaned.timers.length, 0, 'an orphaned instance stops scheduling scans instead of fighting the new one');
-  runInNewContext(`${ageCore}\n${keywordCore}\n${channelRules}\n${youtubeDom}\n${contentRuntime}\n${ageFilter}`, orphaned.sandbox);
+  runInNewContext(`${ageCore}\n${keywordCore}\n${channelRules}\n${settingsContract}\n${youtubeDom}\n${contentRuntime}\n${contentSettings}\n${ageFilter}`, orphaned.sandbox);
   assert.equal(orphaned.storageListeners.length, 2, 're-running over an orphaned instance revives it');
 });
 
@@ -415,7 +527,7 @@ function runFilterScripts({ runtimeId }) {
     },
     setInterval() {},
   };
-  runInNewContext(`${ageCore}\n${keywordCore}\n${channelRules}\n${youtubeDom}\n${contentRuntime}\n${ageFilter}`, sandbox);
+  runInNewContext(`${ageCore}\n${keywordCore}\n${channelRules}\n${settingsContract}\n${youtubeDom}\n${contentRuntime}\n${contentSettings}\n${ageFilter}`, sandbox);
   return { sandbox, storageListeners, timers };
 }
 
@@ -470,7 +582,7 @@ test('allowlisted channels stay visible even with matching keywords and blocked 
     },
   };
 
-  runInNewContext(`${ageCore}\n${keywordCore}\n${channelRules}\n${youtubeDom}\n${contentRuntime}\n${ageFilter}`, {
+  runInNewContext(`${ageCore}\n${keywordCore}\n${channelRules}\n${settingsContract}\n${youtubeDom}\n${contentRuntime}\n${contentSettings}\n${ageFilter}`, {
     chrome,
     document,
     location: { pathname: '/' },
@@ -551,7 +663,7 @@ test('changing only the age limit or keyword list does not drop the allowlist', 
     },
   };
 
-  runInNewContext(`${ageCore}\n${keywordCore}\n${channelRules}\n${youtubeDom}\n${contentRuntime}\n${ageFilter}`, {
+  runInNewContext(`${ageCore}\n${keywordCore}\n${channelRules}\n${settingsContract}\n${youtubeDom}\n${contentRuntime}\n${contentSettings}\n${ageFilter}`, {
     chrome,
     document,
     location: { pathname: '/' },
@@ -639,7 +751,7 @@ test('the channels page feeds the subscriptions catalog', () => {
     },
   };
 
-  runInNewContext(`${ageCore}\n${keywordCore}\n${channelRules}\n${youtubeDom}\n${contentRuntime}\n${ageFilter}`, {
+  runInNewContext(`${ageCore}\n${keywordCore}\n${channelRules}\n${settingsContract}\n${youtubeDom}\n${contentRuntime}\n${contentSettings}\n${ageFilter}`, {
     chrome,
     document,
     location: { pathname: '/feed/channels' },
