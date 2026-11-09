@@ -87,7 +87,17 @@ globalThis.chrome = {
 
 const { addBlockRule, removeBlockRule } = await import('../src/background/blocking.js?extension-flow-test');
 const { getChannelCatalog, saveChannelCatalog } = await import('../src/background/channels.js?extension-flow-test');
-const { getSettings, saveSettings, PRESET_AI_KEYWORDS } = await import('../src/background/settings.js?extension-flow-test');
+const {
+  getSettings,
+  saveSettings,
+  PRESET_AI_KEYWORDS,
+  DEFAULT_SETTINGS,
+  MIN_MAX_AGE_DAYS,
+  MAX_MAX_AGE_DAYS,
+  MAX_LIST_ITEMS,
+  MAX_ITEM_LENGTH,
+  MAX_ALLOWED_CHANNELS,
+} = await import('../src/background/settings.js?extension-flow-test');
 const { injectFilterIntoOpenTabs } = await import('../src/background/injection.js?extension-flow-test');
 
 beforeEach(() => {
@@ -272,4 +282,32 @@ test('allowed channels persist in sync with name and handle', async () => {
 test('invalid recommendation ages are rejected without changing saved settings', async () => {
   await assert.rejects(saveSettings({ maxAgeDays: 0 }), /entre 1 e 365 dias/);
   assert.equal(storage.maxAgeDays, 3);
+});
+
+test('the service worker takes defaults and limits from the shared contract', () => {
+  assert.deepEqual(DEFAULT_SETTINGS, {
+    hideOldVideos: true,
+    hideGamesAndAds: true,
+    maxAgeDays: 3,
+    blockKeywords: false,
+  });
+  assert.equal(MIN_MAX_AGE_DAYS, 1);
+  assert.equal(MAX_MAX_AGE_DAYS, 365);
+  assert.equal(MAX_LIST_ITEMS, 100);
+  assert.equal(MAX_ITEM_LENGTH, 60);
+  assert.equal(MAX_ALLOWED_CHANNELS, 50);
+});
+
+test('the age limit accepts the contract boundaries and persists them', async () => {
+  assert.equal((await saveSettings({ maxAgeDays: MIN_MAX_AGE_DAYS })).maxAgeDays, 1);
+  assert.equal(storage.maxAgeDays, 1);
+
+  assert.equal((await saveSettings({ maxAgeDays: MAX_MAX_AGE_DAYS })).maxAgeDays, 365);
+  assert.equal(storage.maxAgeDays, 365);
+
+  await assert.rejects(
+    saveSettings({ maxAgeDays: MAX_MAX_AGE_DAYS + 1 }),
+    /entre 1 e 365 dias/,
+  );
+  assert.equal(storage.maxAgeDays, 365, 'a rejected boundary does not overwrite the saved value');
 });
