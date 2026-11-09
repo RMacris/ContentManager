@@ -10,7 +10,7 @@ const settingsContract = globalThis.YTISettingsContract;
 
 const MAX_SUGGESTIONS = 8;
 
-let savedSettings = { ...settingsContract.DEFAULT_SETTINGS };
+let savedSettings = settingsContract.normalizeSettings({});
 let channelCatalog = [];
 let allowMatches = [];
 
@@ -177,10 +177,10 @@ async function loadStatus() {
     if (status.action !== 'status' || !status.settings) {
       throw new Error('Não foi possível carregar as preferências do filtro.');
     }
-    savedSettings = { ...settingsContract.DEFAULT_SETTINGS, ...status.settings };
+    savedSettings = settingsContract.normalizeSettings(status.settings);
     updateSettingsControls();
   } catch (error) {
-    savedSettings = { ...settingsContract.DEFAULT_SETTINGS };
+    savedSettings = settingsContract.normalizeSettings({});
     updateSettingsControls();
     displayMessage('filterMessage', error.message, true);
   } finally {
@@ -191,10 +191,10 @@ async function loadStatus() {
 }
 
 function updateSettingsControls() {
-  document.getElementById('hideOldVideos').checked = savedSettings.hideOldVideos !== false;
-  document.getElementById('hideGamesAndAds').checked = savedSettings.hideGamesAndAds !== false;
+  document.getElementById('hideOldVideos').checked = savedSettings.hideOldVideos;
+  document.getElementById('hideGamesAndAds').checked = savedSettings.hideGamesAndAds;
   document.getElementById('maxAgeDays').value = String(savedSettings.maxAgeDays);
-  document.getElementById('blockKeywords').checked = savedSettings.blockKeywords === true;
+  document.getElementById('blockKeywords').checked = savedSettings.blockKeywords;
   renderKeywordList();
   renderChannelList();
   renderAllowedChannels();
@@ -280,7 +280,7 @@ async function persistList(settingsKey, nextValues, successMessage) {
     if (response.action !== 'saveSettings' || response.ok !== true) {
       throw new Error('Não foi possível salvar a lista.');
     }
-    savedSettings = { ...savedSettings, ...response.settings };
+    savedSettings = settingsContract.normalizeSettings(response.settings);
     renderKeywordList();
     renderChannelList();
     displayMessage('keywordMessage', successMessage, false);
@@ -340,7 +340,7 @@ async function persistSetting(key, value, control, successMessage) {
       throw new Error('Não foi possível salvar esta preferência.');
     }
 
-    savedSettings = { ...savedSettings, ...response.settings };
+    savedSettings = settingsContract.normalizeSettings(response.settings);
     displayMessage('filterMessage', successMessage, false);
   } catch (error) {
     savedSettings[key] = previousValue;
@@ -453,7 +453,7 @@ async function persistAllowed(nextValues, successMessage) {
     if (response.action !== 'saveSettings' || response.ok !== true) {
       throw new Error('Não foi possível salvar a lista.');
     }
-    savedSettings = { ...savedSettings, ...response.settings };
+    savedSettings = settingsContract.normalizeSettings(response.settings);
     renderAllowedChannels();
     displayMessage('allowMessage', successMessage, false);
     return true;

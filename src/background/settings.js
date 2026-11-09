@@ -97,15 +97,7 @@ export async function getSettings() {
     blockedChannels: null,
     allowedChannels: null,
   });
-  return {
-    hideOldVideos: saved.hideOldVideos !== false,
-    hideGamesAndAds: saved.hideGamesAndAds !== false,
-    maxAgeDays: contract.normalizeMaxAgeDays(saved.maxAgeDays),
-    blockKeywords: saved.blockKeywords === true,
-    blockedKeywords: contract.normalizeList(saved.blockedKeywords) ?? [],
-    blockedChannels: contract.normalizeList(saved.blockedChannels) ?? [],
-    allowedChannels: contract.normalizeAllowedList(saved.allowedChannels) ?? [],
-  };
+  return contract.normalizeSettings(saved);
 }
 
 export async function saveSettings(patch) {

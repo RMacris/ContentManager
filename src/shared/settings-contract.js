@@ -75,6 +75,23 @@
     return channelRules().normalizeAllowed(value);
   }
 
+  /**
+   * O estado completo como a extensão o consome: padrões para o que faltar,
+   * interruptores coagidos e listas sempre como arrays.
+   */
+  function normalizeSettings(value) {
+    const saved = value !== null && typeof value === 'object' && !Array.isArray(value) ? value : {};
+    return {
+      hideOldVideos: saved.hideOldVideos !== false,
+      hideGamesAndAds: saved.hideGamesAndAds !== false,
+      maxAgeDays: normalizeMaxAgeDays(saved.maxAgeDays),
+      blockKeywords: saved.blockKeywords === true,
+      blockedKeywords: normalizeList(saved.blockedKeywords) ?? [],
+      blockedChannels: normalizeList(saved.blockedChannels) ?? [],
+      allowedChannels: normalizeAllowedList(saved.allowedChannels) ?? [],
+    };
+  }
+
   /** A lista como o usuário a enviou: validada, aparada e dentro do limite. */
   function normalizeListForSave(value) {
     if (!Array.isArray(value)) {
@@ -158,6 +175,7 @@
     isKnownKey,
     isValidMaxAgeDays,
     normalizeMaxAgeDays,
+    normalizeSettings,
     normalizeList,
     normalizeAllowedList,
     normalizeListForSave,

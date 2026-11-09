@@ -53,6 +53,39 @@ test('the contract validates the age limit at its boundaries', () => {
   assert.equal(contract.normalizeMaxAgeDays(14), 14);
 });
 
+test('the contract normalizes a full settings state', () => {
+  assert.deepEqual(contract.normalizeSettings({}), {
+    hideOldVideos: true,
+    hideGamesAndAds: true,
+    maxAgeDays: 3,
+    blockKeywords: false,
+    blockedKeywords: [],
+    blockedChannels: [],
+    allowedChannels: [],
+  });
+
+  assert.deepEqual(
+    contract.normalizeSettings({
+      hideOldVideos: false,
+      hideGamesAndAds: 0,
+      maxAgeDays: 999,
+      blockKeywords: 'yes',
+      blockedKeywords: ['GPT-4', 'gpt 4'],
+      blockedChannels: ['Rick'],
+      allowedChannels: [{ name: 'Tech Brasil', handle: '@TechBR' }],
+    }),
+    {
+      hideOldVideos: false,
+      hideGamesAndAds: true,
+      maxAgeDays: 3,
+      blockKeywords: false,
+      blockedKeywords: ['GPT-4'],
+      blockedChannels: ['Rick'],
+      allowedChannels: [{ name: 'Tech Brasil', handle: '@TechBR' }],
+    },
+  );
+});
+
 test('the contract normalizes and caps keyword and channel lists', () => {
   assert.equal(contract.normalizeList(null), null);
   assert.equal(contract.normalizeList(undefined), null);
