@@ -237,6 +237,8 @@ src/
 │   ├── channels.js        catálogo local dos canais inscritos (chrome.storage.local)
 │   ├── injection.js       re-injeta o filtro nas abas do YouTube abertas (chrome.scripting)
 │   └── settings.js        preferências e limite de idade do filtro
+├── shared/
+│   └── settings-contract.js  padrões, limites, chaves e normalização (script clássico, sem DOM)
 ├── content/
 │   ├── block-guard.js     redireciona URLs bloqueadas (script clássico)
 │   ├── age-core.js        lê a idade do card e decide o limite (script clássico, sem DOM)
@@ -301,6 +303,11 @@ conter nos nomes de canal. O `keyword-core.js` também é puro e roda em `vm`.
 As **listas de canais** têm uma suíte só delas (`test/channel-rules.test.mjs`), e os adaptadores
 (content scripts, popup e settings) usam a mesma regra: normalização, identidade por handle ou nome,
 allowlist/blocklist e o próximo estado ao clicar no chip.
+
+As **configurações** têm um contrato único (`test/settings-contract.test.mjs`): padrões, chaves,
+limites (idade de 1 a 365 dias, listas de 100 itens com 60 caracteres, allowlist de 50 canais) e
+normalização. O popup monta os controles a partir dele e o service worker continua sendo a
+autoridade que valida e grava em `chrome.storage.sync`.
 
 O **botão ao lado do nome do canal** tem suíte própria (`test/channel-button.test.mjs`): o chip
 aparece no dono do vídeo, o clique adiciona e remove `blockedChannels` pelo service worker, a

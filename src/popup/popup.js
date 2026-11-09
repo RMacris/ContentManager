@@ -2,30 +2,22 @@
 const IS_SIDE_PANEL = typeof location !== 'undefined' && location.search.includes('surface=sidepanel');
 if (IS_SIDE_PANEL && document.body) document.body.classList.add('sidepanel-surface');
 
-// A política das listas vem de `content/channel-rules.js`, carregado antes
-// deste script pelo popup.html. A tela é só um adaptador.
+// A política das listas vem de `content/channel-rules.js` e o schema das
+// preferências de `shared/settings-contract.js`, carregados antes deste script
+// pelo popup.html. A tela é só um adaptador.
 const channelRules = globalThis.YTIChannelRules;
+const settingsContract = globalThis.YTISettingsContract;
 
-const DEFAULT_SETTINGS = {
-  hideOldVideos: true,
-  hideGamesAndAds: true,
-  maxAgeDays: 3,
-  blockKeywords: false,
-  blockedKeywords: null,
-  blockedChannels: null,
-  allowedChannels: [],
-};
-const MIN_AGE_DAYS = 1;
-const MAX_AGE_DAYS = 365;
 const MAX_SUGGESTIONS = 8;
 
-let savedSettings = { ...DEFAULT_SETTINGS };
+let savedSettings = { ...settingsContract.DEFAULT_SETTINGS };
 let channelCatalog = [];
 let allowMatches = [];
 
 document.addEventListener('DOMContentLoaded', initialize);
 
 async function initialize() {
+  applySettingsContract();
   document.getElementById('blockForm').addEventListener('submit', handleBlockUrl);
   document.getElementById('hideOldVideos').addEventListener('change', handleHideOldVideos);
   document.getElementById('hideGamesAndAds').addEventListener('change', handleHideGamesAndAds);
@@ -44,6 +36,28 @@ async function initialize() {
   if (!chrome.sidePanel?.open) sidePanelButton.hidden = true;
 
   await Promise.all([loadBlockedUrls(), loadStatus(), loadChannelCatalog()]);
+}
+
+/**
+ * Liga os controles ao contrato: os limites e o padrão da idade vêm de um só
+ * lugar, e os campos de lista usam o mesmo teto que a gravação aceita.
+ */
+function applySettingsContract() {
+  const age = document.getElementById('maxAgeDays');
+  const { min, max } = settingsContract.LIMITS.maxAgeDays;
+  age.min = String(min);
+  age.max = String(max);
+  age.step = '1';
+  age.value = String(settingsContract.DEFAULT_SETTINGS.maxAgeDays);
+
+  const hint = document.getElementById('ageHint');
+  if (hint) hint.textContent = `De ${min} a ${max} dias.`;
+
+  const maxLength = settingsContract.LIMITS.maxItemLength;
+  for (const id of ['keywordInput', 'channelInput', 'allowInput']) {
+    const input = document.getElementById(id);
+    if (input) input.maxLength = maxLength;
+  }
 }
 
 /* ------------------------------------------------------------ painel lateral */
@@ -163,10 +177,10 @@ async function loadStatus() {
     if (status.action !== 'status' || !status.settings) {
       throw new Error('Não foi possível carregar as preferências do filtro.');
     }
-    savedSettings = { ...DEFAULT_SETTINGS, ...status.settings };
+    savedSettings = { ...settingsContract.DEFAULT_SETTINGS, ...status.settings };
     updateSettingsControls();
   } catch (error) {
-    savedSettings = { ...DEFAULT_SETTINGS };
+    savedSettings = { ...settingsContract.DEFAULT_SETTINGS };
     updateSettingsControls();
     displayMessage('filterMessage', error.message, true);
   } finally {
@@ -203,9 +217,10 @@ async function handleHideGamesAndAds() {
 async function handleMaxAgeDays() {
   const control = document.getElementById('maxAgeDays');
   const maxAgeDays = Number(control.value);
-  if (!Number.isInteger(maxAgeDays) || maxAgeDays < MIN_AGE_DAYS || maxAgeDays > MAX_AGE_DAYS) {
+  if (!settingsContract.isValidMaxAgeDays(maxAgeDays)) {
+    const { min, max } = settingsContract.LIMITS.maxAgeDays;
     control.value = String(savedSettings.maxAgeDays);
-    displayMessage('filterMessage', `Escolha um número inteiro entre ${MIN_AGE_DAYS} e ${MAX_AGE_DAYS} dias.`, true);
+    displayMessage('filterMessage', `Escolha um número inteiro entre ${min} e ${max} dias.`, true);
     return;
   }
 
@@ -244,7 +259,7 @@ async function addListItem(inputId, settingsKey, label) {
   }
 
   const current = Array.isArray(savedSettings[settingsKey]) ? savedSettings[settingsKey] : [];
-  if (channelRules.hasListItem(current, value)) {
+  if (settingsContract.hasListItem(current, value)) {
     displayMessage('keywordMessage', `“${value}” já está na lista.`, true);
     return;
   }
@@ -419,7 +434,7 @@ async function handleAddAllowed(event) {
 
 async function addAllowedChannel(entry) {
   const current = Array.isArray(savedSettings.allowedChannels) ? savedSettings.allowedChannels : [];
-  if (current.some((item) => channelRules.sameChannel(item, entry))) {
+  if (current.some((item) => settingsContract.sameChannel(item, entry))) {
     displayMessage('allowMessage', `“${entry.name}” já está na lista.`, true);
     return;
   }
