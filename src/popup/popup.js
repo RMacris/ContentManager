@@ -35,7 +35,51 @@ async function initialize() {
   sidePanelButton.addEventListener('click', handleOpenSidePanel);
   if (!chrome.sidePanel?.open) sidePanelButton.hidden = true;
 
+  listenForSettingsChanges();
   await Promise.all([loadBlockedUrls(), loadStatus(), loadChannelCatalog()]);
+}
+
+/* ------------------------------------------------ sincronização entre telas */
+
+/**
+ * O popup e o painel lateral dividem a mesma tela, e o chip do YouTube escreve
+ * a mesma lista sem abrir nenhum dos dois. O storage é a fonte única: o que
+ * muda fora chega aqui e a tela reflete na hora, sem reabrir.
+ */
+function listenForSettingsChanges() {
+  if (typeof chrome === 'undefined' || !chrome.storage || !chrome.storage.onChanged) return;
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'sync') return;
+    applySettingsChanges(changes);
+  });
+}
+
+function applySettingsChanges(changes) {
+  const touched = settingsContract.SETTING_KEYS.some((key) =>
+    Object.prototype.hasOwnProperty.call(changes, key),
+  );
+  if (!touched) return;
+
+  if (changes.blockedKeywords) {
+    savedSettings.blockedKeywords = settingsContract.normalizeList(changes.blockedKeywords.newValue);
+  }
+  if (changes.blockedChannels) {
+    savedSettings.blockedChannels = settingsContract.normalizeList(changes.blockedChannels.newValue);
+  }
+  if (changes.allowedChannels) {
+    savedSettings.allowedChannels = settingsContract.normalizeAllowedList(changes.allowedChannels.newValue);
+  }
+  if (changes.hideOldVideos) savedSettings.hideOldVideos = changes.hideOldVideos.newValue !== false;
+  if (changes.hideGamesAndAds) savedSettings.hideGamesAndAds = changes.hideGamesAndAds.newValue !== false;
+  if (changes.blockKeywords) savedSettings.blockKeywords = changes.blockKeywords.newValue === true;
+  if (changes.maxAgeDays) {
+    const maxAgeDays = Number(changes.maxAgeDays.newValue);
+    if (settingsContract.isValidMaxAgeDays(maxAgeDays)) {
+      savedSettings.maxAgeDays = maxAgeDays;
+    }
+  }
+
+  updateSettingsControls();
 }
 
 /**
