@@ -16,6 +16,8 @@ const FILTER_SCRIPTS = [
   'src/content/age-core.js',
   'src/content/keyword-core.js',
   'src/content/channel-rules.js',
+  'src/content/youtube-dom.js',
+  'src/content/content-runtime.js',
   'src/content/channel-button.js',
   'src/content/age-filter.js',
 ];
