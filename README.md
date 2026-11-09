@@ -307,9 +307,10 @@ O **botão ao lado do nome do canal** tem suíte própria (`test/channel-button.
 aparece no dono do vídeo, o clique adiciona e remove `blockedChannels` pelo service worker, a
 allowlist tira o botão e o layout novo do lockup recebe a versão compacta. O DOM falso roda em `vm`.
 
-O **ciclo da página** é um só (`content-runtime.js`): observer, navegação, visibilidade, varredura
-de 2 s e desligamento da instância órfã. O filtro de idade e o chip registram apenas o próprio
-`scan`; as suítes cobrem a instância órfã nos dois adaptadores e a aba oculta no chip.
+O **ciclo da página** é um só (`content-runtime.js`) e tem suíte própria
+(`test/content-runtime.test.mjs`): um observer e um sweep para dois adaptadores, aba oculta e
+desligamento da instância órfã. O filtro de idade e o chip registram apenas o próprio `scan`; as
+suítes dos adaptadores cobrem a instância órfã nos dois e a aba oculta no chip.
 
 ## Installation
 
