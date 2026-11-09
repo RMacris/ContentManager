@@ -4,19 +4,20 @@
  * A extensão é autônoma: nada daqui sai da máquina. As preferências do filtro
  * do YouTube moram em `chrome.storage.sync`, porque acompanham o perfil.
  *
- * A normalização e a deduplicação das listas de canais vêm de
- * `content/channel-rules.js`, o mesmo módulo que o popup e os content scripts
- * carregam. Aqui ficam só as validações e os limites da gravação.
+ * O schema (padrões, limites, chaves e normalização) mora em
+ * `shared/settings-contract.js`, o mesmo módulo que o popup carrega. Aqui fica
+ * a autoridade da gravação: ler, validar contra o contrato e persistir.
  */
 import '../content/keyword-core.js';
 import '../content/channel-rules.js';
+import '../shared/settings-contract.js';
 
-const channelRules = globalThis.YTIChannelRules;
+const contract = globalThis.YTISettingsContract;
 
-export const MIN_MAX_AGE_DAYS = 1;
-export const MAX_MAX_AGE_DAYS = 365;
-export const MAX_LIST_ITEMS = 100;
-export const MAX_ITEM_LENGTH = 60;
+export const MIN_MAX_AGE_DAYS = contract.LIMITS.maxAgeDays.min;
+export const MAX_MAX_AGE_DAYS = contract.LIMITS.maxAgeDays.max;
+export const MAX_LIST_ITEMS = contract.LIMITS.maxListItems;
+export const MAX_ITEM_LENGTH = contract.LIMITS.maxItemLength;
 
 /**
  * As palavras-chave que já vêm com a extensão: os termos conhecidos de IA,
@@ -70,29 +71,12 @@ export const PRESET_AI_KEYWORDS = [
   'Vibe Coding',
 ];
 
-export const DEFAULT_SETTINGS = {
-  /**
-   * Esconder no YouTube os vídeos mais antigos que `maxAgeDays` (3 dias por
-   * padrão).
-   */
-  hideOldVideos: true,
-  /**
-   * Esconder os cards que não têm data para julgar: o jogo da prateleira de
-   * playables e o anúncio no feed.
-   */
-  hideGamesAndAds: true,
-  /** Idade máxima das recomendações antes de serem ocultadas. */
-  maxAgeDays: 3,
-  /**
-   * Esconder o vídeo cujo título tem uma das `blockedKeywords` ou cujo canal
-   * está em `blockedChannels`. Desligado por padrão: é o usuário quem ativa.
-   */
-  blockKeywords: false,
-};
+/** Os padrões vêm do contrato; a gravação não mantém uma segunda cópia. */
+export const DEFAULT_SETTINGS = contract.DEFAULT_SETTINGS;
 
-const LIST_KEYS = ['blockedKeywords', 'blockedChannels'];
-const ALLOWED_LIST_KEY = 'allowedChannels';
-export const MAX_ALLOWED_CHANNELS = 50;
+const LIST_KEYS = contract.LIST_KEYS;
+const ALLOWED_LIST_KEY = contract.ALLOWED_LIST_KEY;
+export const MAX_ALLOWED_CHANNELS = contract.LIMITS.maxAllowedChannels;
 
 /**
  * Grava a lista de IA na primeira leitura. Depois disso a lista pertence ao
@@ -100,7 +84,7 @@ export const MAX_ALLOWED_CHANNELS = 50;
  */
 export async function initializeKeywordLists() {
   const saved = await chrome.storage.sync.get({ blockedKeywords: null });
-  if (normalizeList(saved.blockedKeywords) === null) {
+  if (contract.normalizeList(saved.blockedKeywords) === null) {
     await chrome.storage.sync.set({ blockedKeywords: [...PRESET_AI_KEYWORDS] });
   }
 }
@@ -113,15 +97,7 @@ export async function getSettings() {
     blockedChannels: null,
     allowedChannels: null,
   });
-  return {
-    hideOldVideos: saved.hideOldVideos !== false,
-    hideGamesAndAds: saved.hideGamesAndAds !== false,
-    maxAgeDays: normalizeMaxAgeDays(saved.maxAgeDays),
-    blockKeywords: saved.blockKeywords === true,
-    blockedKeywords: normalizeList(saved.blockedKeywords) ?? [],
-    blockedChannels: normalizeList(saved.blockedChannels) ?? [],
-    allowedChannels: normalizeAllowedList(saved.allowedChannels) ?? [],
-  };
+  return contract.normalizeSettings(saved);
 }
 
 export async function saveSettings(patch) {
@@ -129,8 +105,7 @@ export async function saveSettings(patch) {
     throw new TypeError('As configurações enviadas são inválidas.');
   }
 
-  const allowedKeys = [...Object.keys(DEFAULT_SETTINGS), ...LIST_KEYS, ALLOWED_LIST_KEY];
-  const unknownKey = Object.keys(patch).find((key) => !allowedKeys.includes(key));
+  const unknownKey = Object.keys(patch).find((key) => !contract.isKnownKey(key));
   if (unknownKey !== undefined) throw new Error(`Configuração desconhecida: ${unknownKey}.`);
 
   const validated = {};
@@ -145,7 +120,7 @@ export async function saveSettings(patch) {
 
   if (Object.prototype.hasOwnProperty.call(patch, 'maxAgeDays')) {
     const maxAgeDays = Number(patch.maxAgeDays);
-    if (!isValidMaxAgeDays(maxAgeDays)) {
+    if (!contract.isValidMaxAgeDays(maxAgeDays)) {
       throw new RangeError(
         `O limite deve ser um número inteiro entre ${MIN_MAX_AGE_DAYS} e ${MAX_MAX_AGE_DAYS} dias.`,
       );
@@ -155,90 +130,14 @@ export async function saveSettings(patch) {
 
   for (const key of LIST_KEYS) {
     if (Object.prototype.hasOwnProperty.call(patch, key)) {
-      validated[key] = normalizeListForSave(patch[key]);
+      validated[key] = contract.normalizeListForSave(patch[key]);
     }
   }
 
   if (Object.prototype.hasOwnProperty.call(patch, ALLOWED_LIST_KEY)) {
-    validated[ALLOWED_LIST_KEY] = normalizeAllowedForSave(patch[ALLOWED_LIST_KEY]);
+    validated[ALLOWED_LIST_KEY] = contract.normalizeAllowedForSave(patch[ALLOWED_LIST_KEY]);
   }
 
   if (Object.keys(validated).length > 0) await chrome.storage.sync.set(validated);
   return getSettings();
-}
-
-function normalizeMaxAgeDays(value) {
-  return isValidMaxAgeDays(value) ? value : DEFAULT_SETTINGS.maxAgeDays;
-}
-
-function isValidMaxAgeDays(value) {
-  return Number.isInteger(value) && value >= MIN_MAX_AGE_DAYS && value <= MAX_MAX_AGE_DAYS;
-}
-
-/** `null` quando a lista nunca foi gravada; senão, a lista limpa e sem repetidos. */
-function normalizeList(value) {
-  if (value === null || value === undefined) return null;
-  if (!Array.isArray(value)) return null;
-  return channelRules.normalizeList(value);
-}
-
-/** A lista como o usuário a enviou: validada, aparada e dentro do limite. */
-function normalizeListForSave(value) {
-  if (!Array.isArray(value)) {
-    throw new TypeError('A lista precisa ser enviada como uma lista de textos.');
-  }
-  for (const item of value) {
-    if (typeof item !== 'string') {
-      throw new TypeError('Cada item da lista precisa ser um texto.');
-    }
-  }
-  const trimmed = value.map((item) => item.trim());
-  const tooLong = trimmed.find((item) => item.length > MAX_ITEM_LENGTH);
-  if (tooLong !== undefined) {
-    throw new RangeError(`Cada item da lista precisa ter até ${MAX_ITEM_LENGTH} caracteres.`);
-  }
-
-  const unique = channelRules.normalizeList(value);
-  if (unique.length > MAX_LIST_ITEMS) {
-    throw new RangeError(`A lista comporta até ${MAX_LIST_ITEMS} itens.`);
-  }
-  return unique;
-}
-
-/** `null` quando a allowlist nunca foi gravada; senão, nome e handle limpos. */
-function normalizeAllowedList(value) {
-  if (!Array.isArray(value)) return null;
-  return channelRules.normalizeAllowed(value);
-}
-
-/** A allowlist do popup: nome + handle, sem repetidos e dentro do limite. */
-function normalizeAllowedForSave(value) {
-  if (!Array.isArray(value)) {
-    throw new TypeError('A lista de sempre recomendados precisa ser enviada como uma lista.');
-  }
-
-  const cleaned = [];
-  for (const entry of value) {
-    if (entry === null || typeof entry !== 'object' || typeof entry.name !== 'string') {
-      throw new TypeError('Cada canal precisa ter um nome.');
-    }
-    const name = entry.name.trim();
-    if (name === '') continue;
-    if (name.length > MAX_ITEM_LENGTH) {
-      throw new RangeError(`O nome do canal precisa ter até ${MAX_ITEM_LENGTH} caracteres.`);
-    }
-
-    const handle = typeof entry.handle === 'string' ? entry.handle.trim() : '';
-    if (handle.length > MAX_ITEM_LENGTH) {
-      throw new RangeError(`O handle do canal precisa ter até ${MAX_ITEM_LENGTH} caracteres.`);
-    }
-
-    cleaned.push({ name, handle });
-  }
-
-  const unique = channelRules.normalizeAllowed(cleaned);
-  if (unique.length > MAX_ALLOWED_CHANNELS) {
-    throw new RangeError(`A lista de sempre recomendados comporta até ${MAX_ALLOWED_CHANNELS} canais.`);
-  }
-  return unique;
 }

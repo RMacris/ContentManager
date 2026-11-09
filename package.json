@@ -5,6 +5,6 @@
   "type": "module",
   "description": "Extensão do Chrome: bloqueio de URLs e filtro do feed do YouTube (idade, jogos e anúncios).",
   "scripts": {
-    "test": "node test/manifest.test.mjs && node test/age-core.test.mjs && node test/keyword-core.test.mjs && node --test test/age-filter.test.mjs test/block-guard.test.mjs test/channel-button.test.mjs test/channel-rules.test.mjs test/content-runtime.test.mjs test/extension-flow.test.mjs test/popup.test.mjs test/youtube-dom.test.mjs"
+    "test": "node test/manifest.test.mjs && node test/age-core.test.mjs && node test/keyword-core.test.mjs && node --test test/age-filter.test.mjs test/block-guard.test.mjs test/channel-button.test.mjs test/channel-rules.test.mjs test/content-runtime.test.mjs test/extension-flow.test.mjs test/popup.test.mjs test/settings-contract.test.mjs test/youtube-dom.test.mjs"
   }
 }

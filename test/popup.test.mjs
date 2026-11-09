@@ -7,6 +7,7 @@ const popupHtml = readFileSync(new URL('../src/popup/popup.html', import.meta.ur
 const popupScript = readFileSync(new URL('../src/popup/popup.js', import.meta.url), 'utf8');
 const keywordCore = readFileSync(new URL('../src/content/keyword-core.js', import.meta.url), 'utf8');
 const channelRules = readFileSync(new URL('../src/content/channel-rules.js', import.meta.url), 'utf8');
+const settingsContract = readFileSync(new URL('../src/shared/settings-contract.js', import.meta.url), 'utf8');
 const backend = createBackend();
 
 before(async () => {
@@ -43,6 +44,38 @@ test('popup saves toggles and the custom age limit across reopen', async () => {
   await reopened.document.dispatchEvent('DOMContentLoaded');
   assert.equal(reopened.document.getElementById('hideOldVideos').checked, false);
   assert.equal(reopened.document.getElementById('maxAgeDays').value, '14');
+});
+
+test('the popup wires its controls from the shared settings contract', async () => {
+  const popup = mountPopup();
+  await popup.document.dispatchEvent('DOMContentLoaded');
+
+  const age = popup.document.getElementById('maxAgeDays');
+  assert.equal(age.min, '1');
+  assert.equal(age.max, '365');
+  assert.equal(age.step, '1');
+  assert.equal(age.value, '3');
+  assert.equal(popup.document.getElementById('ageHint').textContent, 'De 1 a 365 dias.');
+  for (const id of ['keywordInput', 'channelInput', 'allowInput']) {
+    assert.equal(popup.document.getElementById(id).maxLength, 60, `${id} uses the contract item limit`);
+  }
+});
+
+test('the popup rejects an age outside the contract range without saving it', async () => {
+  const popup = mountPopup();
+  await popup.document.dispatchEvent('DOMContentLoaded');
+
+  const age = popup.document.getElementById('maxAgeDays');
+  age.value = '366';
+  await age.dispatchEvent('change');
+
+  assert.equal(backend.state.maxAgeDays, 3, 'the invalid value never reaches storage');
+  assert.equal(age.value, '3', 'the control returns to the saved value');
+  assert.match(popup.document.getElementById('filterMessage').textContent, /entre 1 e 365 dias/);
+
+  age.value = '0';
+  await age.dispatchEvent('change');
+  assert.equal(backend.state.maxAgeDays, 3);
 });
 
 test('blocked URLs can be added and removed from the popup', async () => {
@@ -123,12 +156,15 @@ test('the popup opens the same settings in the browser side panel', async () => 
   assert.equal(backend.sidePanelCalls[0].windowId, -2, 'it opens in the current browser window');
 });
 
-test('the popup loads the shared channel rules before its own script', () => {
+test('the popup loads the shared rules and contract before its own script', () => {
   const rulesAt = popupHtml.indexOf('../content/channel-rules.js');
+  const contractAt = popupHtml.indexOf('../shared/settings-contract.js');
   const popupAt = popupHtml.indexOf('popup.js');
 
   assert.ok(rulesAt !== -1, 'channel-rules.js is loaded by the popup');
-  assert.ok(rulesAt < popupAt, 'channel-rules.js loads before popup.js');
+  assert.ok(contractAt !== -1, 'settings-contract.js is loaded by the popup');
+  assert.ok(rulesAt < contractAt, 'channel-rules.js loads before the contract');
+  assert.ok(contractAt < popupAt, 'settings-contract.js loads before popup.js');
 });
 
 test('the channel add form stays above the long keyword badge list', () => {
@@ -504,7 +540,7 @@ function mountPopup() {
     },
   };
 
-  runInNewContext(`${keywordCore}\n${channelRules}\n${popupScript}`, { chrome: backend.chrome, document }, { filename: 'popup.js' });
+  runInNewContext(`${keywordCore}\n${channelRules}\n${settingsContract}\n${popupScript}`, { chrome: backend.chrome, document }, { filename: 'popup.js' });
   return { document };
 }
 
