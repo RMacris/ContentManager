@@ -286,10 +286,10 @@
         <div class="age-limit-row">
           <div>
             <label class="field-label" for="maxAgeDays">Idade máxima</label>
-            <p class="field-hint">De 1 a 365 dias.</p>
+            <p class="field-hint" id="ageHint"></p>
           </div>
           <div class="number-field">
-            <input type="number" id="maxAgeDays" min="1" max="365" step="1" value="3" disabled>
+            <input type="number" id="maxAgeDays" disabled>
             <span>dias</span>
           </div>
         </div>
@@ -328,7 +328,7 @@
         <form id="keywordForm" class="stacked-form" novalidate>
           <label class="field-label" for="keywordInput">Palavra-chave no título</label>
           <div class="entry-row">
-            <input type="text" id="keywordInput" name="keyword" placeholder="ex.: chatgpt" autocomplete="off" spellcheck="false" maxlength="60">
+            <input type="text" id="keywordInput" name="keyword" placeholder="ex.: chatgpt" autocomplete="off" spellcheck="false">
             <button class="primary-button" id="addKeyword" type="submit" aria-label="Adicionar palavra-chave"><span class="plus" aria-hidden="true">+</span>Adicionar</button>
           </div>
           <p class="field-hint">Enter adiciona. A comparação ignora acentos, maiúsculas e pontuação — “GPT-4” e “gpt 4” são a mesma.</p>
@@ -337,7 +337,7 @@
         <form id="channelForm" class="stacked-form" novalidate>
           <label class="field-label" for="channelInput">Nome do canal</label>
           <div class="entry-row">
-            <input type="text" id="channelInput" name="channel" placeholder="ex.: Canal de tech" autocomplete="off" spellcheck="false" maxlength="60">
+            <input type="text" id="channelInput" name="channel" placeholder="ex.: Canal de tech" autocomplete="off" spellcheck="false">
             <button class="primary-button" id="addChannel" type="submit" aria-label="Adicionar canal à lista de bloqueio"><span class="plus" aria-hidden="true">+</span>Adicionar</button>
           </div>
           <p class="field-hint">Enter adiciona. Basta conter o nome: “Canal X” bloqueia o card “Canal X - Ao vivo”.</p>
@@ -368,7 +368,7 @@
         <form id="allowForm" novalidate>
           <label class="field-label" for="allowInput">Adicionar das suas inscrições</label>
           <div class="entry-row">
-            <input type="text" id="allowInput" name="allow" placeholder="Digite o nome do canal" autocomplete="off" spellcheck="false" maxlength="60">
+            <input type="text" id="allowInput" name="allow" placeholder="Digite o nome do canal" autocomplete="off" spellcheck="false">
             <button class="primary-button" id="addAllowed" type="submit" aria-label="Adicionar canal aos sempre recomendados"><span class="plus" aria-hidden="true">+</span>Adicionar</button>
           </div>
           <p class="field-hint">Digite o nome e escolha a sugestão. Enter adiciona a primeira.</p>
@@ -390,6 +390,7 @@
   </div>
   <script src="../content/keyword-core.js"></script>
   <script src="../content/channel-rules.js"></script>
+  <script src="../shared/settings-contract.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

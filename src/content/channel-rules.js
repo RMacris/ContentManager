@@ -2,9 +2,10 @@
  * Regras das listas de canais: normalização, identidade e casamento.
  *
  * Script clássico de propósito: o Chrome carrega este arquivo depois de
- * `keyword-core.js` e antes de `channel-button.js` e `age-filter.js`; o popup
- * e o `background/settings.js` leem a mesma API pelo global. O arquivo é puro
- * (sem DOM e sem `chrome`) para a suíte rodá-lo no Node.
+ * `keyword-core.js` e antes de `youtube-dom.js`, `content-runtime.js`,
+ * `channel-button.js` e `age-filter.js`; o popup e o `background/settings.js`
+ * leem a mesma API pelo global. O arquivo é puro (sem DOM e sem `chrome`) para
+ * a suíte rodá-lo no Node.
  *
  * Este é o único dono da política das listas:
  *  - o texto do canal é normalizado pelo `keyword-core` (minúsculo, sem
