@@ -241,6 +241,7 @@ src/
 │   ├── block-guard.js     redireciona URLs bloqueadas (script clássico)
 │   ├── age-core.js        lê a idade do card e decide o limite (script clássico, sem DOM)
 │   ├── keyword-core.js    casa palavras-chave e canais no texto do card (script clássico, sem DOM)
+│   ├── channel-rules.js   normaliza listas e resolve allowlist/blocklist (script clássico, sem DOM)
 │   ├── channel-button.js  chip de bloqueio ao lado do nome do canal
 │   └── age-filter.js      esconde/mostra os cards no site do YouTube
 ├── popup/                 interface: bloqueio e configurações do filtro
@@ -296,6 +297,10 @@ ação ("Assistido há 5 dias" não é publicação), o que não é data ("N mil
 O **casamento de palavras-chave e canais** tem a sua (`test/keyword-core.test.mjs`): a normalização
 (acentos, maiúsculas, pontuação, zero-width), a comparação por palavra inteira nos títulos e a de
 conter nos nomes de canal. O `keyword-core.js` também é puro e roda em `vm`.
+
+As **listas de canais** têm uma suíte só delas (`test/channel-rules.test.mjs`), e os adaptadores
+(content scripts, popup e settings) usam a mesma regra: normalização, identidade por handle ou nome,
+allowlist/blocklist e o próximo estado ao clicar no chip.
 
 O **botão ao lado do nome do canal** tem suíte própria (`test/channel-button.test.mjs`): o chip
 aparece no dono do vídeo, o clique adiciona e remove `blockedChannels` pelo service worker, a

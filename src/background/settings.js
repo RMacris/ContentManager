@@ -3,7 +3,15 @@
  *
  * A extensão é autônoma: nada daqui sai da máquina. As preferências do filtro
  * do YouTube moram em `chrome.storage.sync`, porque acompanham o perfil.
+ *
+ * A normalização e a deduplicação das listas de canais vêm de
+ * `content/channel-rules.js`, o mesmo módulo que o popup e os content scripts
+ * carregam. Aqui ficam só as validações e os limites da gravação.
  */
+import '../content/keyword-core.js';
+import '../content/channel-rules.js';
+
+const channelRules = globalThis.YTIChannelRules;
 
 export const MIN_MAX_AGE_DAYS = 1;
 export const MAX_MAX_AGE_DAYS = 365;
@@ -167,14 +175,14 @@ function isValidMaxAgeDays(value) {
   return Number.isInteger(value) && value >= MIN_MAX_AGE_DAYS && value <= MAX_MAX_AGE_DAYS;
 }
 
-/** `null` quando a lista nunca foi gravada; senão, a lista limpa. */
+/** `null` quando a lista nunca foi gravada; senão, a lista limpa e sem repetidos. */
 function normalizeList(value) {
   if (value === null || value === undefined) return null;
   if (!Array.isArray(value)) return null;
-  return value.filter((item) => typeof item === 'string' && item.trim() !== '').map((item) => item.trim());
+  return channelRules.normalizeList(value);
 }
 
-/** A lista como o usuário a enviou: aparada, sem repetidos e dentro do limite. */
+/** A lista como o usuário a enviou: validada, aparada e dentro do limite. */
 function normalizeListForSave(value) {
   if (!Array.isArray(value)) {
     throw new TypeError('A lista precisa ser enviada como uma lista de textos.');
@@ -190,15 +198,7 @@ function normalizeListForSave(value) {
     throw new RangeError(`Cada item da lista precisa ter até ${MAX_ITEM_LENGTH} caracteres.`);
   }
 
-  const seen = new Set();
-  const unique = [];
-  for (const item of trimmed) {
-    if (item === '') continue;
-    const key = item.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    unique.push(item);
-  }
+  const unique = channelRules.normalizeList(value);
   if (unique.length > MAX_LIST_ITEMS) {
     throw new RangeError(`A lista comporta até ${MAX_LIST_ITEMS} itens.`);
   }
@@ -208,15 +208,7 @@ function normalizeListForSave(value) {
 /** `null` quando a allowlist nunca foi gravada; senão, nome e handle limpos. */
 function normalizeAllowedList(value) {
   if (!Array.isArray(value)) return null;
-  const list = [];
-  for (const entry of value) {
-    if (entry === null || typeof entry !== 'object') continue;
-    const name = typeof entry.name === 'string' ? entry.name.trim() : '';
-    if (name === '') continue;
-    const handle = typeof entry.handle === 'string' ? entry.handle.trim() : '';
-    list.push({ name, handle });
-  }
-  return list;
+  return channelRules.normalizeAllowed(value);
 }
 
 /** A allowlist do popup: nome + handle, sem repetidos e dentro do limite. */
@@ -225,8 +217,7 @@ function normalizeAllowedForSave(value) {
     throw new TypeError('A lista de sempre recomendados precisa ser enviada como uma lista.');
   }
 
-  const seen = new Set();
-  const unique = [];
+  const cleaned = [];
   for (const entry of value) {
     if (entry === null || typeof entry !== 'object' || typeof entry.name !== 'string') {
       throw new TypeError('Cada canal precisa ter um nome.');
@@ -242,12 +233,10 @@ function normalizeAllowedForSave(value) {
       throw new RangeError(`O handle do canal precisa ter até ${MAX_ITEM_LENGTH} caracteres.`);
     }
 
-    const key = (handle || name).toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    unique.push({ name, handle });
+    cleaned.push({ name, handle });
   }
 
+  const unique = channelRules.normalizeAllowed(cleaned);
   if (unique.length > MAX_ALLOWED_CHANNELS) {
     throw new RangeError(`A lista de sempre recomendados comporta até ${MAX_ALLOWED_CHANNELS} canais.`);
   }

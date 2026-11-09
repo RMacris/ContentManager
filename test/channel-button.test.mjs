@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 
 const keywordCore = readFileSync(new URL('../src/content/keyword-core.js', import.meta.url), 'utf8');
+const channelRules = readFileSync(new URL('../src/content/channel-rules.js', import.meta.url), 'utf8');
 const channelButton = readFileSync(new URL('../src/content/channel-button.js', import.meta.url), 'utf8');
 const HOST_CLASS = 'yti-channel-block-host';
 
@@ -56,6 +57,14 @@ test('a storage change and the allowlist update every injected button', async ()
   const restored = findHost(run.container);
   assert.ok(restored, 'removing the allowlist brings the button back');
   assert.notEqual(restored, host);
+});
+
+test('the allowlist uses normalized identity before the chip is built', () => {
+  const byName = runButton({ allowedChannels: [{ name: 'rick astley', handle: '' }] });
+  assert.equal(findHost(byName.container), null, 'the name uses the matcher normalization');
+
+  const byHandle = runButton({ allowedChannels: [{ name: 'Outro Nome', handle: '@rickastley' }] });
+  assert.equal(findHost(byHandle.container), null, 'the handle ignores @ and case');
 });
 
 test('the lockup metadata row gets a compact card button', () => {
@@ -127,7 +136,7 @@ function runButton({
     console,
   };
 
-  runInNewContext(`${keywordCore}\n${channelButton}`, sandbox, { filename: 'channel-button.js' });
+  runInNewContext(`${keywordCore}\n${channelRules}\n${channelButton}`, sandbox, { filename: 'channel-button.js' });
   flushTimers(timers);
   return { ...backend, container, lockup: activeLockup, pageTitle: document.pageTitle, document, sandbox, timers, intervals };
 }

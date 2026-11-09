@@ -32,7 +32,7 @@
     },
     {
       "matches": ["https://www.youtube.com/*"],
-      "js": ["src/content/age-core.js", "src/content/keyword-core.js", "src/content/channel-button.js", "src/content/age-filter.js"],
+      "js": ["src/content/age-core.js", "src/content/keyword-core.js", "src/content/channel-rules.js", "src/content/channel-button.js", "src/content/age-filter.js"],
       "run_at": "document_start"
     }
   ],

@@ -6,6 +6,7 @@ import { runInNewContext } from 'node:vm';
 const popupHtml = readFileSync(new URL('../src/popup/popup.html', import.meta.url), 'utf8');
 const popupScript = readFileSync(new URL('../src/popup/popup.js', import.meta.url), 'utf8');
 const keywordCore = readFileSync(new URL('../src/content/keyword-core.js', import.meta.url), 'utf8');
+const channelRules = readFileSync(new URL('../src/content/channel-rules.js', import.meta.url), 'utf8');
 const backend = createBackend();
 
 before(async () => {
@@ -122,6 +123,14 @@ test('the popup opens the same settings in the browser side panel', async () => 
   assert.equal(backend.sidePanelCalls[0].windowId, -2, 'it opens in the current browser window');
 });
 
+test('the popup loads the shared channel rules before its own script', () => {
+  const rulesAt = popupHtml.indexOf('../content/channel-rules.js');
+  const popupAt = popupHtml.indexOf('popup.js');
+
+  assert.ok(rulesAt !== -1, 'channel-rules.js is loaded by the popup');
+  assert.ok(rulesAt < popupAt, 'channel-rules.js loads before popup.js');
+});
+
 test('the channel add form stays above the long keyword badge list', () => {
   const keywordFormAt = popupHtml.indexOf('id="keywordForm"');
   const channelFormAt = popupHtml.indexOf('id="channelForm"');
@@ -164,6 +173,34 @@ test('keyword badges start from the AI preset, are extended and removed', async 
   assert.equal(backend.state.blockedKeywords.includes(badgeText), false, 'the × button removes the badge');
 });
 
+test('list duplicate checks fold punctuation and spacing like the matcher', async () => {
+  const popup = mountPopup();
+  await popup.document.dispatchEvent('DOMContentLoaded');
+
+  const keywordInput = popup.document.getElementById('keywordInput');
+  keywordInput.value = 'gpt 4';
+  await popup.document.getElementById('keywordForm').dispatchEvent('submit');
+
+  assert.match(popup.document.getElementById('keywordMessage').textContent, /já está/);
+  assert.equal(
+    backend.state.blockedKeywords.filter((keyword) => keyword === 'gpt 4').length,
+    0,
+    'the matcher-equivalent keyword is not stored twice',
+  );
+
+  const channelInput = popup.document.getElementById('channelInput');
+  channelInput.value = 'Rick Astley';
+  await popup.document.getElementById('channelForm').dispatchEvent('submit');
+  channelInput.value = 'rick  astley';
+  await popup.document.getElementById('channelForm').dispatchEvent('submit');
+
+  assert.equal(
+    backend.state.blockedChannels.filter((channel) => channel.toLowerCase() === 'rick astley').length,
+    1,
+    'the matcher-equivalent channel is not stored twice',
+  );
+});
+
 test('channel badges are added, saved and emptied through the same UI', async () => {
   const popup = mountPopup();
   await popup.document.dispatchEvent('DOMContentLoaded');
@@ -198,6 +235,7 @@ test('saving settings revives the filter in open YouTube tabs', async () => {
   assert.deepEqual(backend.injections[0].files, [
     'src/content/age-core.js',
     'src/content/keyword-core.js',
+    'src/content/channel-rules.js',
     'src/content/channel-button.js',
     'src/content/age-filter.js',
   ]);
@@ -464,7 +502,7 @@ function mountPopup() {
     },
   };
 
-  runInNewContext(`${keywordCore}\n${popupScript}`, { chrome: backend.chrome, document }, { filename: 'popup.js' });
+  runInNewContext(`${keywordCore}\n${channelRules}\n${popupScript}`, { chrome: backend.chrome, document }, { filename: 'popup.js' });
   return { document };
 }
 

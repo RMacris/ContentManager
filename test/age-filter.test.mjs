@@ -5,6 +5,7 @@ import { runInNewContext } from 'node:vm';
 
 const ageCore = readFileSync(new URL('../src/content/age-core.js', import.meta.url), 'utf8');
 const keywordCore = readFileSync(new URL('../src/content/keyword-core.js', import.meta.url), 'utf8');
+const channelRules = readFileSync(new URL('../src/content/channel-rules.js', import.meta.url), 'utf8');
 const ageFilter = readFileSync(new URL('../src/content/age-filter.js', import.meta.url), 'utf8');
 
 test('the YouTube filter applies the saved age limit and reacts to changes', () => {
@@ -51,7 +52,7 @@ test('the YouTube filter applies the saved age limit and reacts to changes', () 
     },
   };
 
-  runInNewContext(`${ageCore}\n${ageFilter}`, {
+  runInNewContext(`${ageCore}\n${keywordCore}\n${channelRules}\n${ageFilter}`, {
     chrome,
     document,
     location: { pathname: '/' },
@@ -178,7 +179,7 @@ test('keyword and channel blocking reuse the age-filter hiding and undo on toggl
     },
   };
 
-  runInNewContext(`${ageCore}\n${keywordCore}\n${ageFilter}`, {
+  runInNewContext(`${ageCore}\n${keywordCore}\n${channelRules}\n${ageFilter}`, {
     chrome,
     document,
     location: { pathname: '/' },
@@ -313,7 +314,7 @@ test('an unknown card layout still matches keywords using the whole card text', 
     },
   };
 
-  runInNewContext(`${ageCore}\n${keywordCore}\n${ageFilter}`, {
+  runInNewContext(`${ageCore}\n${keywordCore}\n${channelRules}\n${ageFilter}`, {
     chrome,
     document,
     location: { pathname: '/' },
@@ -342,13 +343,13 @@ test('a live filter is not duplicated; an orphaned one is revived by re-injectio
   const live = runFilterScripts({ runtimeId: 'extension-id' });
   assert.equal(live.storageListeners.length, 1);
   assert.equal(live.timers.length, 1, 'a live instance schedules its scans');
-  runInNewContext(`${ageCore}\n${keywordCore}\n${ageFilter}`, live.sandbox);
+  runInNewContext(`${ageCore}\n${keywordCore}\n${channelRules}\n${ageFilter}`, live.sandbox);
   assert.equal(live.storageListeners.length, 1, 're-running over a live instance does nothing');
 
   const orphaned = runFilterScripts({ runtimeId: undefined });
   assert.equal(orphaned.storageListeners.length, 1);
   assert.equal(orphaned.timers.length, 0, 'an orphaned instance stops scheduling scans instead of fighting the new one');
-  runInNewContext(`${ageCore}\n${keywordCore}\n${ageFilter}`, orphaned.sandbox);
+  runInNewContext(`${ageCore}\n${keywordCore}\n${channelRules}\n${ageFilter}`, orphaned.sandbox);
   assert.equal(orphaned.storageListeners.length, 2, 're-running over an orphaned instance revives it');
 });
 
@@ -412,7 +413,7 @@ function runFilterScripts({ runtimeId }) {
     },
     setInterval() {},
   };
-  runInNewContext(`${ageCore}\n${keywordCore}\n${ageFilter}`, sandbox);
+  runInNewContext(`${ageCore}\n${keywordCore}\n${channelRules}\n${ageFilter}`, sandbox);
   return { sandbox, storageListeners, timers };
 }
 
@@ -467,7 +468,7 @@ test('allowlisted channels stay visible even with matching keywords and blocked 
     },
   };
 
-  runInNewContext(`${ageCore}\n${keywordCore}\n${ageFilter}`, {
+  runInNewContext(`${ageCore}\n${keywordCore}\n${channelRules}\n${ageFilter}`, {
     chrome,
     document,
     location: { pathname: '/' },
@@ -488,6 +489,95 @@ test('allowlisted channels stay visible even with matching keywords and blocked 
   assert.equal(allowedByName.style.display, '', 'the allowlist wins by channel name');
   assert.equal(allowedByHandle.style.display, '', 'the allowlist wins by handle too');
   assert.equal(blockedCard.style.display, 'none', 'a channel outside the allowlist is still filtered');
+});
+
+test('changing only the age limit or keyword list does not drop the allowlist', () => {
+  const allowedCard = createKeywordCard({
+    title: 'ChatGPT avançado',
+    channel: 'Tech Brasil',
+    handle: '@TechBR',
+  });
+  const blockedCard = createKeywordCard({ title: 'ChatGPT avançado', channel: 'Canal Ruim' });
+  const cards = [allowedCard, blockedCard];
+  const timers = [];
+  const storageListeners = [];
+  let readSettings;
+
+  const document = {
+    documentElement: {},
+    visibilityState: 'visible',
+    addEventListener() {},
+    querySelectorAll(selector) {
+      if (selector.includes('data-yti-old')) return cards.filter((card) => card.getAttribute('data-yti-old') === '1');
+      if (selector === 'ytd-rich-shelf-renderer') return [];
+      return cards;
+    },
+    createTreeWalker(node) {
+      let index = 0;
+      return {
+        nextNode() {
+          if (index >= node.textParts.length) return null;
+          return { data: node.textParts[index++] };
+        },
+      };
+    },
+  };
+
+  const chrome = {
+    runtime: { lastError: null, id: 'extension-id' },
+    storage: {
+      sync: {
+        get(defaults, callback) {
+          readSettings = () =>
+            callback({
+              ...defaults,
+              hideOldVideos: true,
+              hideGamesAndAds: false,
+              maxAgeDays: 3,
+              blockKeywords: true,
+              blockedKeywords: ['chatgpt'],
+              blockedChannels: ['Canal Ruim'],
+              allowedChannels: [{ name: 'Tech Brasil', handle: '@TechBR' }],
+            });
+        },
+      },
+      onChanged: {
+        addListener(listener) {
+          storageListeners.push(listener);
+        },
+      },
+    },
+  };
+
+  runInNewContext(`${ageCore}\n${keywordCore}\n${channelRules}\n${ageFilter}`, {
+    chrome,
+    document,
+    location: { pathname: '/' },
+    NodeFilter: { SHOW_TEXT: 4 },
+    MutationObserver: class {
+      observe() {}
+      disconnect() {}
+    },
+    setTimeout(callback) {
+      timers.push(callback);
+      return timers.length;
+    },
+    setInterval() {},
+  });
+
+  readSettings();
+  flushTimers(timers);
+  assert.equal(allowedCard.style.display, '', 'the allowlist wins before any change');
+  assert.equal(blockedCard.style.display, 'none', 'a channel outside the allowlist is filtered');
+
+  storageListeners[0]({ maxAgeDays: { newValue: 7 } }, 'sync');
+  flushTimers(timers);
+  assert.equal(allowedCard.style.display, '', 'changing only maxAgeDays keeps the allowlist');
+  assert.equal(blockedCard.style.display, 'none');
+
+  storageListeners[0]({ blockedKeywords: { newValue: ['chatgpt', 'ia'] } }, 'sync');
+  flushTimers(timers);
+  assert.equal(allowedCard.style.display, '', 'changing only the keyword list keeps the allowlist');
 });
 
 test('the channels page feeds the subscriptions catalog', () => {
@@ -547,7 +637,7 @@ test('the channels page feeds the subscriptions catalog', () => {
     },
   };
 
-  runInNewContext(`${ageCore}\n${keywordCore}\n${ageFilter}`, {
+  runInNewContext(`${ageCore}\n${keywordCore}\n${channelRules}\n${ageFilter}`, {
     chrome,
     document,
     location: { pathname: '/feed/channels' },

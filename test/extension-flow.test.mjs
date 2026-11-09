@@ -185,6 +185,25 @@ test('keyword and channel lists are cleaned and capped before saving', async () 
   assert.equal(storage.blockedChannels, null, 'a rejected list is not saved');
 });
 
+test('saved lists use the same equality as the matcher and the popup', async () => {
+  const saved = await saveSettings({
+    blockedKeywords: ['GPT-4', 'gpt 4', 'Claude'],
+    blockedChannels: ['Rick Astley', 'rick astley'],
+    allowedChannels: [
+      { name: 'Tech Brasil', handle: '@TechBR' },
+      { name: 'tech brasil', handle: '@techbr' },
+      { name: 'Cozinha', handle: '' },
+    ],
+  });
+
+  assert.deepEqual(saved.blockedKeywords, ['GPT-4', 'Claude']);
+  assert.deepEqual(saved.blockedChannels, ['Rick Astley']);
+  assert.deepEqual(saved.allowedChannels, [
+    { name: 'Tech Brasil', handle: '@TechBR' },
+    { name: 'Cozinha', handle: '' },
+  ]);
+});
+
 test('the keyword toggle persists like the other switches', async () => {
   const saved = await saveSettings({ blockKeywords: true });
 
@@ -202,6 +221,7 @@ test('reloading the extension revives the filter in open YouTube tabs without a 
   assert.deepEqual(injectedTabs[0].files, [
     'src/content/age-core.js',
     'src/content/keyword-core.js',
+    'src/content/channel-rules.js',
     'src/content/channel-button.js',
     'src/content/age-filter.js',
   ]);
