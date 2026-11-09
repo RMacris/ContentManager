@@ -22,9 +22,8 @@ const channelRules = globalThis.YTIChannelRules;
 
 const CATALOG_KEY = 'channelCatalog';
 const MAX_CATALOG_CHANNELS = 2000;
-// O mesmo teto que a allowlist aceita: uma sugestão do catálogo sempre pode
-// ser salva, em vez de aparecer na busca e falhar no clique.
-const MAX_NAME_LENGTH = channelRules.MAX_CHANNEL_NAME_LENGTH;
+// O mesmo teto de item que a allowlist aceita: uma sugestão do catálogo sempre
+// pode ser salva, em vez de aparecer na busca e falhar no clique.
 const MAX_HANDLE_LENGTH = channelRules.MAX_CHANNEL_NAME_LENGTH;
 const MAX_AVATAR_LENGTH = 500;
 
@@ -141,7 +140,7 @@ function normalizeEntry(entry) {
   if (entry === null || typeof entry !== 'object') return null;
 
   const name = typeof entry.name === 'string' ? channelRules.cleanText(entry.name) : '';
-  if (name === '' || name.length > MAX_NAME_LENGTH) return null;
+  if (!channelRules.isUsableChannelName(name)) return null;
 
   const handle = typeof entry.handle === 'string' ? channelRules.cleanText(entry.handle) : '';
   const avatarUrl = typeof entry.avatarUrl === 'string' ? entry.avatarUrl.trim() : '';
