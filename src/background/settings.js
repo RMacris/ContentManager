@@ -13,11 +13,8 @@ import '../content/channel-rules.js';
 import '../shared/settings-contract.js';
 
 const contract = globalThis.YTISettingsContract;
-
-export const MIN_MAX_AGE_DAYS = contract.LIMITS.maxAgeDays.min;
-export const MAX_MAX_AGE_DAYS = contract.LIMITS.maxAgeDays.max;
-export const MAX_LIST_ITEMS = contract.LIMITS.maxListItems;
-export const MAX_ITEM_LENGTH = contract.LIMITS.maxItemLength;
+const MIN_MAX_AGE_DAYS = contract.LIMITS.maxAgeDays.min;
+const MAX_MAX_AGE_DAYS = contract.LIMITS.maxAgeDays.max;
 
 /**
  * As palavras-chave que já vêm com a extensão: os termos conhecidos de IA,
@@ -76,7 +73,6 @@ export const DEFAULT_SETTINGS = contract.DEFAULT_SETTINGS;
 
 const LIST_KEYS = contract.LIST_KEYS;
 const ALLOWED_LIST_KEY = contract.ALLOWED_LIST_KEY;
-export const MAX_ALLOWED_CHANNELS = contract.LIMITS.maxAllowedChannels;
 
 /**
  * Grava a lista de IA na primeira leitura. Depois disso a lista pertence ao

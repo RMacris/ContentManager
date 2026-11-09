@@ -156,16 +156,6 @@
     return unique;
   }
 
-  /** O candidato já está na lista pela regra do casamento? */
-  function hasListItem(values, candidate) {
-    return channelRules().hasListItem(values, candidate);
-  }
-
-  /** Dois registros da allowlist são o mesmo canal? */
-  function sameChannel(a, b) {
-    return channelRules().sameChannel(a, b);
-  }
-
   root.YTISettingsContract = Object.freeze({
     DEFAULT_SETTINGS,
     LIMITS,
@@ -180,7 +170,5 @@
     normalizeAllowedList,
     normalizeListForSave,
     normalizeAllowedForSave,
-    hasListItem,
-    sameChannel,
   });
 })(typeof globalThis !== 'undefined' ? globalThis : this);

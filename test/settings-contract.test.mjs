@@ -150,21 +150,14 @@ test('the item ceiling stays aligned with the channel rules module', () => {
   assert.equal(contract.LIMITS.maxItemLength, globalThis.YTIChannelRules.MAX_CHANNEL_NAME_LENGTH);
 });
 
-test('the contract duplicate checks fold like the matcher', () => {
-  assert.equal(contract.hasListItem(['GPT-4'], 'gpt 4'), true);
-  assert.equal(contract.hasListItem(['Rick Astley'], 'rick  astley'), true);
-  assert.equal(contract.hasListItem([], 'qualquer'), false);
+test('the contract leaves list identity to the channel-rules owner', () => {
+  assert.equal(contract.hasListItem, undefined, 'the contract does not re-export the item matcher');
+  assert.equal(contract.sameChannel, undefined, 'the contract does not re-export channel identity');
+  assert.equal(globalThis.YTIChannelRules.hasListItem(['GPT-4'], 'gpt 4'), true);
   assert.equal(
-    contract.sameChannel(
+    globalThis.YTIChannelRules.sameChannel(
       { name: 'Tech Brasil', handle: '@TechBR' },
       { name: 'outro nome', handle: '@techbr' },
-    ),
-    true,
-  );
-  assert.equal(
-    contract.sameChannel(
-      { name: 'Tech Brasil', handle: '' },
-      { name: 'tech brasil', handle: '' },
     ),
     true,
   );
