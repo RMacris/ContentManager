@@ -45,7 +45,7 @@ test('the YouTube filter applies the saved age limit and reacts to changes', () 
     storage: {
       sync: {
         get(defaults, callback) {
-          readSettings = () => callback({ ...defaults, hideOldVideos: true, hideGamesAndAds: false, maxAgeDays: 3 });
+          readSettings = () => callback({ ...defaults, hideOldVideos: true, hideGamesAndAds: false, maxAgeHours: 72 });
         },
       },
       onChanged: {
@@ -75,7 +75,7 @@ test('the YouTube filter applies the saved age limit and reacts to changes', () 
   storageListeners[0]({
     hideOldVideos: { newValue: false },
     hideGamesAndAds: { newValue: false },
-    maxAgeDays: { newValue: 7 },
+    maxAgeHours: { newValue: 168 },
   }, 'sync');
   readSettings();
   flushTimers(timers);
@@ -87,7 +87,7 @@ test('the YouTube filter applies the saved age limit and reacts to changes', () 
   assert.equal(oldCard.style.display, '', 'a 6-day recommendation remains at a 7-day limit');
   assert.equal(olderCard.style.display, 'none', 'an 8-day recommendation is hidden at a 7-day limit');
 
-  storageListeners[0]({ maxAgeDays: { newValue: 5 } }, 'sync');
+  storageListeners[0]({ maxAgeHours: { newValue: 120 } }, 'sync');
   flushTimers(timers);
   assert.equal(oldCard.style.display, 'none', 'changing the saved limit recalculates existing cards');
 
@@ -135,7 +135,7 @@ test('the content filter takes its age bound and default from the shared contrac
   const beyondBound = createVideoCard('há 366 dias');
   const wide = runAgeLimitScenario({
     contractSource: settingsContract,
-    maxAgeDays: 365,
+    maxAgeHours: 8760,
     cards: [withinBound, beyondBound],
   });
   wide.read();
@@ -144,27 +144,27 @@ test('the content filter takes its age bound and default from the shared contrac
   assert.equal(beyondBound.style.display, 'none', '366 days is outside the 365-day contract bound');
 
   const twentyDays = createVideoCard('há 20 dias');
-  const narrowedContract = settingsContract.replace('max: 365', 'max: 30');
+  const narrowedContract = settingsContract.replace('max: 365 * HOURS_PER_DAY', 'max: 720');
   assert.notEqual(narrowedContract, settingsContract, 'the simulated contract change is applied');
   const narrow = runAgeLimitScenario({
     contractSource: narrowedContract,
-    maxAgeDays: 3,
+    maxAgeHours: 72,
     cards: [twentyDays],
   });
   narrow.read();
   flushTimers(narrow.timers);
   assert.equal(twentyDays.style.display, 'none', 'a 20-day card is hidden at the contract default');
 
-  narrow.change({ maxAgeDays: { newValue: 60 } });
+  narrow.change({ maxAgeHours: { newValue: 1440 } });
   flushTimers(narrow.timers);
   assert.equal(
     twentyDays.style.display,
     'none',
-    '60 is invalid under the narrowed contract and the filter falls back to the contract default 3',
+    '60 days is invalid under the narrowed contract and the filter falls back to the contract default 3 days',
   );
 });
 
-function runAgeLimitScenario({ contractSource, maxAgeDays, cards }) {
+function runAgeLimitScenario({ contractSource, maxAgeHours, cards }) {
   const timers = [];
   const storageListeners = [];
   let read = () => {};
@@ -199,7 +199,7 @@ function runAgeLimitScenario({ contractSource, maxAgeDays, cards }) {
               ...defaults,
               hideOldVideos: true,
               hideGamesAndAds: false,
-              maxAgeDays,
+              maxAgeHours,
               blockKeywords: false,
             });
         },
@@ -647,7 +647,7 @@ test('changing only the age limit or keyword list does not drop the allowlist', 
               ...defaults,
               hideOldVideos: true,
               hideGamesAndAds: false,
-              maxAgeDays: 3,
+              maxAgeHours: 72,
               blockKeywords: true,
               blockedKeywords: ['chatgpt'],
               blockedChannels: ['Canal Ruim'],
@@ -684,9 +684,9 @@ test('changing only the age limit or keyword list does not drop the allowlist', 
   assert.equal(allowedCard.style.display, '', 'the allowlist wins before any change');
   assert.equal(blockedCard.style.display, 'none', 'a channel outside the allowlist is filtered');
 
-  storageListeners[0]({ maxAgeDays: { newValue: 7 } }, 'sync');
+  storageListeners[0]({ maxAgeHours: { newValue: 168 } }, 'sync');
   flushTimers(timers);
-  assert.equal(allowedCard.style.display, '', 'changing only maxAgeDays keeps the allowlist');
+  assert.equal(allowedCard.style.display, '', 'changing only maxAgeHours keeps the allowlist');
   assert.equal(blockedCard.style.display, 'none');
 
   storageListeners[0]({ blockedKeywords: { newValue: ['chatgpt', 'ia'] } }, 'sync');

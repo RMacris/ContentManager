@@ -13,6 +13,7 @@ const MAX_SUGGESTIONS = 8;
 let savedSettings = settingsContract.normalizeSettings({});
 let channelCatalog = [];
 let allowMatches = [];
+let displayedAgeUnit = 'days';
 
 document.addEventListener('DOMContentLoaded', initialize);
 
@@ -21,7 +22,8 @@ async function initialize() {
   document.getElementById('blockForm').addEventListener('submit', handleBlockUrl);
   document.getElementById('hideOldVideos').addEventListener('change', handleHideOldVideos);
   document.getElementById('hideGamesAndAds').addEventListener('change', handleHideGamesAndAds);
-  document.getElementById('maxAgeDays').addEventListener('change', handleMaxAgeDays);
+  document.getElementById('maxAge').addEventListener('change', handleMaxAgeChange);
+  document.getElementById('maxAgeUnit').addEventListener('change', handleMaxAgeUnitChange);
   document.getElementById('blockKeywords').addEventListener('change', handleBlockKeywords);
   document.getElementById('keywordForm').addEventListener('submit', handleAddKeyword);
   document.getElementById('channelForm').addEventListener('submit', handleAddChannel);
@@ -72,10 +74,10 @@ function applySettingsChanges(changes) {
   if (changes.hideOldVideos) savedSettings.hideOldVideos = changes.hideOldVideos.newValue !== false;
   if (changes.hideGamesAndAds) savedSettings.hideGamesAndAds = changes.hideGamesAndAds.newValue !== false;
   if (changes.blockKeywords) savedSettings.blockKeywords = changes.blockKeywords.newValue === true;
-  if (changes.maxAgeDays) {
-    const maxAgeDays = Number(changes.maxAgeDays.newValue);
-    if (settingsContract.isValidMaxAgeDays(maxAgeDays)) {
-      savedSettings.maxAgeDays = maxAgeDays;
+  if (changes.maxAgeHours) {
+    const maxAgeHours = Number(changes.maxAgeHours.newValue);
+    if (settingsContract.isValidMaxAgeHours(maxAgeHours)) {
+      savedSettings.maxAgeHours = maxAgeHours;
     }
   }
 
@@ -87,15 +89,12 @@ function applySettingsChanges(changes) {
  * lugar, e os campos de lista usam o mesmo teto que a gravação aceita.
  */
 function applySettingsContract() {
-  const age = document.getElementById('maxAgeDays');
-  const { min, max } = settingsContract.LIMITS.maxAgeDays;
-  age.min = String(min);
-  age.max = String(max);
-  age.step = '1';
-  age.value = String(settingsContract.DEFAULT_SETTINGS.maxAgeDays);
+  document.getElementById('maxAge').step = '1';
+  updateAgeControls();
 
+  const { min, max } = settingsContract.LIMITS.maxAgeHours;
   const hint = document.getElementById('ageHint');
-  if (hint) hint.textContent = `De ${min} a ${max} dias.`;
+  if (hint) hint.textContent = `De ${formatAge(min)} a ${formatAge(max)}.`;
 
   const maxLength = settingsContract.LIMITS.maxItemLength;
   for (const id of ['keywordInput', 'channelInput', 'allowInput']) {
@@ -209,7 +208,8 @@ async function loadStatus() {
   const controls = [
     document.getElementById('hideOldVideos'),
     document.getElementById('hideGamesAndAds'),
-    document.getElementById('maxAgeDays'),
+    document.getElementById('maxAge'),
+    document.getElementById('maxAgeUnit'),
     document.getElementById('blockKeywords'),
   ];
   controls.forEach((control) => {
@@ -237,11 +237,45 @@ async function loadStatus() {
 function updateSettingsControls() {
   document.getElementById('hideOldVideos').checked = savedSettings.hideOldVideos;
   document.getElementById('hideGamesAndAds').checked = savedSettings.hideGamesAndAds;
-  document.getElementById('maxAgeDays').value = String(savedSettings.maxAgeDays);
+  updateAgeControls();
   document.getElementById('blockKeywords').checked = savedSettings.blockKeywords;
   renderKeywordList();
   renderChannelList();
   renderAllowedChannels();
+}
+
+/** A idade viaja em horas; a tela mostra dias quando a conta é exata. */
+function updateAgeControls() {
+  const hours = savedSettings.maxAgeHours;
+  const unit = hours % settingsContract.HOURS_PER_DAY === 0 ? 'days' : 'hours';
+  const input = document.getElementById('maxAge');
+  const select = document.getElementById('maxAgeUnit');
+
+  displayedAgeUnit = unit;
+  select.value = unit;
+  input.value = String(hours / ageUnitFactor(unit));
+  applyAgeInputLimits(unit);
+}
+
+function applyAgeInputLimits(unit) {
+  const { min, max } = settingsContract.LIMITS.maxAgeHours;
+  const factor = ageUnitFactor(unit);
+  const input = document.getElementById('maxAge');
+  input.min = String(Math.ceil(min / factor));
+  input.max = String(Math.floor(max / factor));
+}
+
+function ageUnitFactor(unit) {
+  return unit === 'days' ? settingsContract.HOURS_PER_DAY : 1;
+}
+
+/** "3 dias", "6 horas": a mesma forma do card, com singular e plural. */
+function formatAge(hours) {
+  if (hours % settingsContract.HOURS_PER_DAY === 0) {
+    const days = hours / settingsContract.HOURS_PER_DAY;
+    return `${days} ${days === 1 ? 'dia' : 'dias'}`;
+  }
+  return `${hours} ${hours === 1 ? 'hora' : 'horas'}`;
 }
 
 async function handleHideOldVideos() {
@@ -258,17 +292,71 @@ async function handleHideGamesAndAds() {
   await persistSetting('hideGamesAndAds', checked, control, message);
 }
 
-async function handleMaxAgeDays() {
-  const control = document.getElementById('maxAgeDays');
-  const maxAgeDays = Number(control.value);
-  if (!settingsContract.isValidMaxAgeDays(maxAgeDays)) {
-    const { min, max } = settingsContract.LIMITS.maxAgeDays;
-    control.value = String(savedSettings.maxAgeDays);
-    displayMessage('filterMessage', `Escolha um número inteiro entre ${min} e ${max} dias.`, true);
+/**
+ * Trocar a unidade não muda o limite: o valor na tela é convertido para a
+ * outra unidade. Quando as horas não fecham em dias inteiros, a troca é
+ * recusada para não arredondar a escolha do usuário.
+ */
+function handleMaxAgeUnitChange() {
+  const input = document.getElementById('maxAge');
+  const select = document.getElementById('maxAgeUnit');
+  const value = Number(input.value);
+  const nextUnit = select.value;
+  const hours = value * ageUnitFactor(displayedAgeUnit);
+
+  if (!Number.isInteger(value) || value <= 0) {
+    updateAgeControls();
     return;
   }
 
-  await persistSetting('maxAgeDays', maxAgeDays, control, `Limite salvo: ${maxAgeDays} dias.`);
+  if (nextUnit === 'days' && hours % settingsContract.HOURS_PER_DAY !== 0) {
+    select.value = displayedAgeUnit;
+    displayMessage('filterMessage', 'Use horas para limites que não fecham em dias inteiros.', true);
+    return;
+  }
+
+  displayedAgeUnit = nextUnit;
+  applyAgeInputLimits(nextUnit);
+  input.value = String(hours / ageUnitFactor(nextUnit));
+}
+
+async function handleMaxAgeChange() {
+  const input = document.getElementById('maxAge');
+  const select = document.getElementById('maxAgeUnit');
+  const value = Number(input.value);
+  const hours = value * ageUnitFactor(select.value);
+
+  if (!Number.isInteger(value) || value <= 0 || !settingsContract.isValidMaxAgeHours(hours)) {
+    const { min, max } = settingsContract.LIMITS.maxAgeHours;
+    updateAgeControls();
+    displayMessage(
+      'filterMessage',
+      `Escolha um número inteiro entre ${formatAge(min)} e ${formatAge(max)}.`,
+      true,
+    );
+    return;
+  }
+
+  const previousValue = savedSettings.maxAgeHours;
+  input.disabled = true;
+  select.disabled = true;
+  try {
+    const response = await sendMessage({ action: 'saveSettings', patch: { maxAgeHours: hours } });
+    if (response.action !== 'saveSettings' || response.ok !== true) {
+      throw new Error('Não foi possível salvar esta preferência.');
+    }
+
+    savedSettings = settingsContract.normalizeSettings(response.settings);
+    updateAgeControls();
+    displayMessage('filterMessage', `Limite salvo: ${formatAge(hours)}.`, false);
+  } catch (error) {
+    savedSettings.maxAgeHours = previousValue;
+    updateAgeControls();
+    displayMessage('filterMessage', error.message, true);
+  } finally {
+    input.disabled = false;
+    select.disabled = false;
+  }
 }
 
 async function handleBlockKeywords() {

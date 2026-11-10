@@ -129,7 +129,7 @@ Let’s build a community-driven solution to break free from the grasp of big te
 ## Filtro de idade nas recomendações
 
 Um content script em `youtube.com` esconde o card de **recomendação** que passa da idade máxima
-configurada no popup (3 dias por padrão; de 1 a 365 dias).
+configurada no popup (72 horas por padrão, exibidas como 3 dias; de 1 hora a 365 dias).
 A idade é a que o próprio YouTube escreve no card — "há 5 dias", "há 2 sem.", "1 week ago" —, então
 o filtro lê o texto renderizado, não uma data absoluta: o que vale é a mesma conta que o usuário vê.
 O limite é estrito: o card exatamente no limite fica; o mais velho some.
@@ -150,9 +150,10 @@ publicação para julgar. A **prateleira** que ficar sem nenhum card visível ta
 título não ficar solto sobre um vazio — mas só a que teve todos os cards escondidos pelo filtro; a
 de Shorts, que nunca é tocada, continua de pé.
 
-O popup tem três preferências: **"Ocultar vídeos antigos"**, a idade máxima em dias e
+O popup tem três preferências: **"Ocultar vídeos antigos"**, a idade máxima em **horas ou dias** e
 **"Ocultar jogos e anúncios"**. Os dois interruptores ficam ligados por padrão; a idade começa em
-3 dias. A página reage na hora: desligar um filtro devolve o que estava escondido sem recarregar, e
+3 dias. O seletor de unidade ao lado do número permite afinar o limite para poucas horas — útil
+quando o feed está barulhento — e troca a exibição sem mudar a duração escolhida. A página reage na hora: desligar um filtro devolve o que estava escondido sem recarregar, e
 os filtros são independentes. Nada é apagado ou guardado: o filtro só
 aplica `display: none` com uma marca no card, nunca remove nó, nunca fala com a rede e não guarda
 nada sobre os vídeos. Como o YouTube é uma SPA, a varredura acompanha nó novo, a navegação
@@ -261,7 +262,7 @@ configuração de fora. O que ela sabe mora no `chrome.storage` do próprio perf
 
 A seção **Filtro do YouTube** do popup tem duas caixas ligadas por padrão: **"Ocultar vídeos antigos"**
 (`hideOldVideos`) e **"Ocultar jogos e anúncios"** (`hideGamesAndAds`), além do limite **Idade máxima**
-(`maxAgeDays`, de 1 a 365 dias, padrão 3). A seção **Palavras-chave e canais** traz o interruptor
+(`maxAgeHours`, de 1 a 8760 horas, padrão 72; a tela mostra em dias quando a conta é exata). A seção **Palavras-chave e canais** traz o interruptor
 `blockKeywords` (desligado por padrão) e as listas `blockedKeywords`/`blockedChannels`; a seção
 **Sempre recomendados** guarda `allowedChannels` (nome + handle) e o catálogo de inscrições vive em
 `chrome.storage.local`. As preferências
@@ -298,8 +299,9 @@ manifesto existindo. Foi assim que a 1.10.0 passou a não filtrar nada em silên
 A **idade dos cards** tem suíte própria (`test/age-core.test.mjs`): as formas que o YouTube escreve
 em pt e en — "há 5 h", "há 2 sem.", "há 1 mês", "há 13 anos", "1 day ago" —, a recusa das datas de
 ação ("Assistido há 5 dias" não é publicação), o que não é data ("N mil assistindo"), e o limite
-**estrito** de 3 dias: "há 3 dias" fica, "há 4 dias" some. O `age-core.js` não conhece DOM nem
-`chrome`, por isso roda num contexto `vm` do Node.
+**estrito** em horas: com 6 horas, "há 6 horas" fica e "há 7 horas" some; com 72 horas, "há 3 dias"
+fica e "há 4 dias" some. O `age-core.js` não conhece DOM nem `chrome`, por isso roda num contexto
+`vm` do Node.
 
 O **casamento de palavras-chave e canais** tem a sua (`test/keyword-core.test.mjs`): a normalização
 (acentos, maiúsculas, pontuação, zero-width), a comparação por palavra inteira nos títulos e a de
@@ -315,7 +317,7 @@ classifica o modelo lido e o chip se posiciona a partir dele; uma mudança de la
 vez. As fixtures rodam em `vm`, com um seletor mínimo que cobre as formas usadas no layout.
 
 As **configurações** têm um contrato único (`test/settings-contract.test.mjs`): padrões, chaves,
-limites (idade de 1 a 365 dias, listas de 100 itens com 60 caracteres, allowlist de 50 canais) e
+limites (idade de 1 a 8760 horas, listas de 100 itens com 60 caracteres, allowlist de 50 canais) e
 normalização. O popup monta os controles a partir dele e o service worker continua sendo a
 autoridade que valida e grava em `chrome.storage.sync`.
 

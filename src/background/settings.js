@@ -13,8 +13,8 @@ import '../content/channel-rules.js';
 import '../shared/settings-contract.js';
 
 const contract = globalThis.YTISettingsContract;
-const MIN_MAX_AGE_DAYS = contract.LIMITS.maxAgeDays.min;
-const MAX_MAX_AGE_DAYS = contract.LIMITS.maxAgeDays.max;
+const MIN_MAX_AGE_HOURS = contract.LIMITS.maxAgeHours.min;
+const MAX_MAX_AGE_HOURS = contract.LIMITS.maxAgeHours.max;
 
 /**
  * As palavras-chave que já vêm com a extensão: os termos conhecidos de IA,
@@ -89,11 +89,22 @@ export async function getSettings() {
   await initializeKeywordLists();
   const saved = await chrome.storage.sync.get({
     ...DEFAULT_SETTINGS,
+    // `null` revela se a chave existe; o padrão esconderia a migração.
+    maxAgeHours: null,
+    [contract.LEGACY_AGE_KEY]: null,
     blockedKeywords: null,
     blockedChannels: null,
     allowedChannels: null,
   });
-  return contract.normalizeSettings(saved);
+  const settings = contract.normalizeSettings(saved);
+
+  // Grava a idade em horas na primeira leitura, convertendo a chave antiga em
+  // dias uma única vez. Depois disso a extensão só lê `maxAgeHours`.
+  if (!contract.isValidMaxAgeHours(saved.maxAgeHours)) {
+    await chrome.storage.sync.set({ maxAgeHours: settings.maxAgeHours });
+  }
+
+  return settings;
 }
 
 export async function saveSettings(patch) {
@@ -114,14 +125,14 @@ export async function saveSettings(patch) {
     }
   }
 
-  if (Object.prototype.hasOwnProperty.call(patch, 'maxAgeDays')) {
-    const maxAgeDays = Number(patch.maxAgeDays);
-    if (!contract.isValidMaxAgeDays(maxAgeDays)) {
+  if (Object.prototype.hasOwnProperty.call(patch, 'maxAgeHours')) {
+    const maxAgeHours = Number(patch.maxAgeHours);
+    if (!contract.isValidMaxAgeHours(maxAgeHours)) {
       throw new RangeError(
-        `O limite deve ser um número inteiro entre ${MIN_MAX_AGE_DAYS} e ${MAX_MAX_AGE_DAYS} dias.`,
+        `O limite deve ser um número inteiro entre ${MIN_MAX_AGE_HOURS} e ${MAX_MAX_AGE_HOURS} horas.`,
       );
     }
-    validated.maxAgeDays = maxAgeDays;
+    validated.maxAgeHours = maxAgeHours;
   }
 
   for (const key of LIST_KEYS) {

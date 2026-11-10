@@ -4,7 +4,7 @@
  * O `age-core.js` é um script clássico (sem import/export) porque o Chrome o
  * carrega junto do content script. Aqui ele roda num contexto `vm` e a suíte
  * confere as formas que o card do YouTube mostra em pt e en, as ações do
- * usuário que não são publicação e o limite de 3/4 dias.
+ * usuário que não são publicação e os limites em horas e dias.
  */
 import { readFileSync } from 'node:fs';
 import { createContext, runInContext } from 'node:vm';
@@ -15,9 +15,9 @@ createContext(sandbox);
 runInContext(source, sandbox, { filename: 'age-core.js' });
 const core = sandbox.YTIAgeFilter ?? runInContext('globalThis.YTIAgeFilter', sandbox);
 
-// O limite não mora mais no `age-core.js`: quem chama passa o valor que veio do
-// `settings-contract.js`. A suíte usa o mesmo padrão de 3 dias do contrato.
-const MAX_AGE_DAYS = 3;
+// O limite não mora no `age-core.js`: quem chama passa o valor que veio do
+// `settings-contract.js`. A suíte usa o mesmo padrão de 72 horas (3 dias).
+const MAX_AGE_HOURS = 72;
 
 let failures = 0;
 
@@ -36,7 +36,7 @@ function checkAge(label, text, expected) {
 }
 
 function checkHide(label, text, expected) {
-  const actual = core.shouldHide(text, MAX_AGE_DAYS);
+  const actual = core.shouldHide(text, MAX_AGE_HOURS);
   check(label, actual === expected, `esperado ${expected}, veio ${String(actual)}`);
 }
 
@@ -107,7 +107,7 @@ checkAge('vazio', '', null);
 checkAge('duração', '1:03:01', null);
 checkAge('texto solto', 'Um vídeo de verdade', null);
 
-process.stdout.write('\nlimite: 3 dias ficam, 4 dias somem:\n');
+process.stdout.write('\nlimite: 72 horas ficam, mais que isso some:\n');
 checkHide('3 dias fica', 'há 3 dias', false);
 checkHide('4 dias some', 'há 4 dias', true);
 checkHide('3 days fica', '3 days ago', false);
@@ -121,19 +121,24 @@ checkHide('ação fica', 'Watched 2 days ago', false);
 checkHide('vivo fica', 'Live now', false);
 checkHide('agendado fica', 'Scheduled for 2 hours from now', false);
 
-process.stdout.write('\nlimite de idade configurável:\n');
-check('7 dias no limite ficam', core.shouldHide('7 days ago', 7) === false);
-check('8 dias acima do limite somem', core.shouldHide('8 days ago', 7) === true);
+process.stdout.write('\nlimite de idade configurável em horas:\n');
+check('6 horas no limite ficam', core.shouldHide('6 hours ago', 6) === false);
+check('7 horas acima do limite somem', core.shouldHide('7 hours ago', 6) === true);
+check('5 horas no limite de 6 ficam', core.shouldHide('há 5 horas', 6) === false);
+check('1 hora no limite de 1 fica', core.shouldHide('1 hour ago', 1) === false);
+check('2 horas acima do limite de 1 somem', core.shouldHide('2 hours ago', 1) === true);
+check('7 dias no limite de 168 horas ficam', core.shouldHide('7 days ago', 168) === false);
+check('8 dias acima do limite de 168 horas somem', core.shouldHide('8 days ago', 168) === true);
 
 process.stdout.write('\nshouldHideAge:\n');
-check('o core não declara um limite padrão', core.MAX_AGE_DAYS === undefined);
-check('null fica', core.shouldHideAge(null, MAX_AGE_DAYS) === false);
-check('zero fica', core.shouldHideAge(0, MAX_AGE_DAYS) === false);
-check('3 dias fica', core.shouldHideAge(259200, MAX_AGE_DAYS) === false);
-check('3 dias + 1 s some', core.shouldHideAge(259201, MAX_AGE_DAYS) === true);
-check('4 dias some', core.shouldHideAge(345600, MAX_AGE_DAYS) === true);
-check('NaN fica', core.shouldHideAge(Number.NaN, MAX_AGE_DAYS) === false);
-check('infinito fica', core.shouldHideAge(Number.POSITIVE_INFINITY, MAX_AGE_DAYS) === false);
+check('o core não declara um limite padrão', core.MAX_AGE_HOURS === undefined);
+check('null fica', core.shouldHideAge(null, MAX_AGE_HOURS) === false);
+check('zero fica', core.shouldHideAge(0, MAX_AGE_HOURS) === false);
+check('72 horas fica', core.shouldHideAge(259200, MAX_AGE_HOURS) === false);
+check('72 horas + 1 s some', core.shouldHideAge(259201, MAX_AGE_HOURS) === true);
+check('96 horas some', core.shouldHideAge(345600, MAX_AGE_HOURS) === true);
+check('NaN fica', core.shouldHideAge(Number.NaN, MAX_AGE_HOURS) === false);
+check('infinito fica', core.shouldHideAge(Number.POSITIVE_INFINITY, MAX_AGE_HOURS) === false);
 check('limite ausente não esconde', core.shouldHideAge(345600) === false);
 
 process.stdout.write(

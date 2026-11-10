@@ -19,7 +19,7 @@ const contentSettings = readFileSync(new URL('../src/content/content-settings.js
 const DEFAULTS = {
   hideOldVideos: true,
   hideGamesAndAds: true,
-  maxAgeDays: 3,
+  maxAgeHours: 72,
   blockKeywords: false,
   blockedKeywords: [],
   blockedChannels: [],
@@ -120,17 +120,25 @@ test('changing one key keeps the other saved values and normalizes invalid ages'
     allowedChannels: [{ name: 'Tech Brasil', handle: '@TechBR' }],
   });
 
-  run.change({ maxAgeDays: { newValue: 14 } });
-  assert.equal(seen.at(-1).maxAgeDays, 14);
+  run.change({ maxAgeHours: { newValue: 336 } });
+  assert.equal(seen.at(-1).maxAgeHours, 336);
   assert.deepEqual(plain(seen.at(-1).blockedChannels), ['Rick Astley'], 'an untouched list is preserved');
   assert.deepEqual(plain(seen.at(-1).allowedChannels), [{ name: 'Tech Brasil', handle: '@TechBR' }]);
 
-  run.change({ maxAgeDays: { newValue: 999 } });
-  assert.equal(seen.at(-1).maxAgeDays, 3, 'an invalid age falls back to the contract default');
+  run.change({ maxAgeHours: { newValue: 99999 } });
+  assert.equal(seen.at(-1).maxAgeHours, 72, 'an invalid age falls back to the contract default');
   assert.equal(seen.at(-1).hideOldVideos, false, 'the fallback does not reset the other switches');
 
   run.change({ blockedChannels: { newValue: ['rick astley', 'Canal Ruim'] } });
   assert.deepEqual(plain(seen.at(-1).blockedChannels), ['rick astley', 'Canal Ruim']);
+});
+
+test('a tab opened before the migration still reads the old age in days', () => {
+  const run = createFeed({ stored: { maxAgeDays: 14 } });
+  const seen = [];
+  run.feed.subscribe((settings) => seen.push(settings));
+
+  assert.equal(seen.at(-1).maxAgeHours, 336, '14 days become the canonical 336 hours');
 });
 
 test('an unsubscribe stops delivery and an unrelated area is ignored', () => {

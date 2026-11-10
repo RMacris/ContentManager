@@ -42,27 +42,29 @@ test('popup saves toggles and the custom age limit across reopen', async () => {
   await oldVideos.dispatchEvent('change');
   assert.equal(backend.state.hideOldVideos, false);
 
-  const ageLimit = popup.document.getElementById('maxAgeDays');
+  const ageLimit = popup.document.getElementById('maxAge');
   ageLimit.value = '14';
   await ageLimit.dispatchEvent('change');
-  assert.equal(backend.state.maxAgeDays, 14);
+  assert.equal(backend.state.maxAgeHours, 336);
 
   const reopened = mountPopup();
   await reopened.document.dispatchEvent('DOMContentLoaded');
   assert.equal(reopened.document.getElementById('hideOldVideos').checked, false);
-  assert.equal(reopened.document.getElementById('maxAgeDays').value, '14');
+  assert.equal(reopened.document.getElementById('maxAge').value, '14');
+  assert.equal(reopened.document.getElementById('maxAgeUnit').value, 'days');
 });
 
 test('the popup wires its controls from the shared settings contract', async () => {
   const popup = mountPopup();
   await popup.document.dispatchEvent('DOMContentLoaded');
 
-  const age = popup.document.getElementById('maxAgeDays');
+  const age = popup.document.getElementById('maxAge');
   assert.equal(age.min, '1');
   assert.equal(age.max, '365');
   assert.equal(age.step, '1');
   assert.equal(age.value, '3');
-  assert.equal(popup.document.getElementById('ageHint').textContent, 'De 1 a 365 dias.');
+  assert.equal(popup.document.getElementById('maxAgeUnit').value, 'days');
+  assert.equal(popup.document.getElementById('ageHint').textContent, 'De 1 hora a 365 dias.');
   for (const id of ['keywordInput', 'channelInput', 'allowInput']) {
     assert.equal(popup.document.getElementById(id).maxLength, 60, `${id} uses the contract item limit`);
   }
@@ -72,17 +74,47 @@ test('the popup rejects an age outside the contract range without saving it', as
   const popup = mountPopup();
   await popup.document.dispatchEvent('DOMContentLoaded');
 
-  const age = popup.document.getElementById('maxAgeDays');
+  const age = popup.document.getElementById('maxAge');
   age.value = '366';
   await age.dispatchEvent('change');
 
-  assert.equal(backend.state.maxAgeDays, 3, 'the invalid value never reaches storage');
+  assert.equal(backend.state.maxAgeHours, 72, 'the invalid value never reaches storage');
   assert.equal(age.value, '3', 'the control returns to the saved value');
-  assert.match(popup.document.getElementById('filterMessage').textContent, /entre 1 e 365 dias/);
+  assert.match(popup.document.getElementById('filterMessage').textContent, /entre 1 hora e 365 dias/);
 
   age.value = '0';
   await age.dispatchEvent('change');
-  assert.equal(backend.state.maxAgeDays, 3);
+  assert.equal(backend.state.maxAgeHours, 72);
+});
+
+test('the popup saves recency in hours and keeps the duration when the unit changes', async () => {
+  const popup = mountPopup();
+  await popup.document.dispatchEvent('DOMContentLoaded');
+
+  const age = popup.document.getElementById('maxAge');
+  const unit = popup.document.getElementById('maxAgeUnit');
+
+  unit.value = 'hours';
+  await unit.dispatchEvent('change');
+  assert.equal(age.value, '72', '3 days become 72 hours');
+  assert.equal(age.min, '1');
+  assert.equal(age.max, '8760');
+
+  age.value = '6';
+  await age.dispatchEvent('change');
+  assert.equal(backend.state.maxAgeHours, 6);
+  assert.match(popup.document.getElementById('filterMessage').textContent, /6 horas/);
+
+  const reopened = mountPopup();
+  await reopened.document.dispatchEvent('DOMContentLoaded');
+  assert.equal(reopened.document.getElementById('maxAge').value, '6');
+  assert.equal(reopened.document.getElementById('maxAgeUnit').value, 'hours');
+
+  unit.value = 'days';
+  await unit.dispatchEvent('change');
+  assert.equal(unit.value, 'hours', '6 hours do not round up to a full day');
+  assert.equal(age.value, '6');
+  assert.match(popup.document.getElementById('filterMessage').textContent, /dias inteiros/);
 });
 
 test('blocked URLs can be added and removed from the popup', async () => {
@@ -384,7 +416,7 @@ function createBackend() {
     blockedUrls: [],
     hideOldVideos: true,
     hideGamesAndAds: true,
-    maxAgeDays: 3,
+    maxAgeHours: 72,
     blockKeywords: false,
     blockedKeywords: null,
     blockedChannels: null,
@@ -551,7 +583,7 @@ function createBackend() {
         blockedUrls: [],
         hideOldVideos: true,
         hideGamesAndAds: true,
-        maxAgeDays: 3,
+        maxAgeHours: 72,
         blockKeywords: false,
         blockedKeywords: null,
         blockedChannels: null,

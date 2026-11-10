@@ -15,20 +15,26 @@
 (function (root) {
   'use strict';
 
+  const HOURS_PER_DAY = 24;
+
   const DEFAULT_SETTINGS = Object.freeze({
     hideOldVideos: true,
     hideGamesAndAds: true,
-    maxAgeDays: 3,
+    maxAgeHours: 72,
     blockKeywords: false,
   });
 
   /** Os limites que a tela mostra e que a gravação aceita. */
   const LIMITS = Object.freeze({
-    maxAgeDays: Object.freeze({ min: 1, max: 365 }),
+    maxAgeHours: Object.freeze({ min: 1, max: 365 * HOURS_PER_DAY }),
     maxListItems: 100,
     maxItemLength: 60,
     maxAllowedChannels: 50,
   });
+
+  /** A chave antiga, em dias: só é lida para migrar o que já estava gravado. */
+  const LEGACY_AGE_KEY = 'maxAgeDays';
+  const LEGACY_MAX_AGE_DAYS = Object.freeze({ min: 1, max: 365 });
 
   const LIST_KEYS = Object.freeze(['blockedKeywords', 'blockedChannels']);
   const ALLOWED_LIST_KEY = 'allowedChannels';
@@ -51,16 +57,31 @@
     return typeof key === 'string' && SETTING_KEYS.includes(key);
   }
 
-  function isValidMaxAgeDays(value) {
+  function isValidMaxAgeHours(value) {
     return (
       Number.isInteger(value) &&
-      value >= LIMITS.maxAgeDays.min &&
-      value <= LIMITS.maxAgeDays.max
+      value >= LIMITS.maxAgeHours.min &&
+      value <= LIMITS.maxAgeHours.max
     );
   }
 
-  function normalizeMaxAgeDays(value) {
-    return isValidMaxAgeDays(value) ? value : DEFAULT_SETTINGS.maxAgeDays;
+  function isValidLegacyMaxAgeDays(value) {
+    return (
+      Number.isInteger(value) &&
+      value >= LEGACY_MAX_AGE_DAYS.min &&
+      value <= LEGACY_MAX_AGE_DAYS.max
+    );
+  }
+
+  /**
+   * A idade canônica é em horas. Sem uma quantidade de horas válida, aproveita
+   * a chave antiga em dias — é assim que quem já usava a extensão mantém o
+   * limite que escolheu depois da atualização.
+   */
+  function normalizeMaxAgeHours(value, legacyDays) {
+    if (isValidMaxAgeHours(value)) return value;
+    if (isValidLegacyMaxAgeDays(legacyDays)) return legacyDays * HOURS_PER_DAY;
+    return DEFAULT_SETTINGS.maxAgeHours;
   }
 
   /** `null` quando a lista nunca foi gravada; senão, a lista limpa e sem repetidos. */
@@ -85,7 +106,7 @@
     return {
       hideOldVideos: saved.hideOldVideos !== false,
       hideGamesAndAds: saved.hideGamesAndAds !== false,
-      maxAgeDays: normalizeMaxAgeDays(saved.maxAgeDays),
+      maxAgeHours: normalizeMaxAgeHours(saved.maxAgeHours, saved[LEGACY_AGE_KEY]),
       blockKeywords: saved.blockKeywords === true,
       blockedKeywords: normalizeList(saved.blockedKeywords) ?? [],
       blockedChannels: normalizeList(saved.blockedChannels) ?? [],
@@ -160,12 +181,14 @@
   root.YTISettingsContract = Object.freeze({
     DEFAULT_SETTINGS,
     LIMITS,
+    HOURS_PER_DAY,
+    LEGACY_AGE_KEY,
     LIST_KEYS,
     ALLOWED_LIST_KEY,
     SETTING_KEYS,
     isKnownKey,
-    isValidMaxAgeDays,
-    normalizeMaxAgeDays,
+    isValidMaxAgeHours,
+    normalizeMaxAgeHours,
     normalizeSettings,
     normalizeList,
     normalizeAllowedList,

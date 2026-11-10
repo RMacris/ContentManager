@@ -5,7 +5,7 @@ const storage = {
   blockedUrls: [],
   hideOldVideos: true,
   hideGamesAndAds: true,
-  maxAgeDays: 3,
+  maxAgeHours: 72,
   blockKeywords: false,
   blockedKeywords: null,
   blockedChannels: null,
@@ -100,7 +100,8 @@ beforeEach(() => {
   storage.blockedUrls = [];
   storage.hideOldVideos = true;
   storage.hideGamesAndAds = true;
-  storage.maxAgeDays = 3;
+  storage.maxAgeHours = 72;
+  delete storage.maxAgeDays;
   storage.blockKeywords = false;
   storage.blockedKeywords = null;
   storage.blockedChannels = null;
@@ -150,18 +151,28 @@ test('a DNR failure does not save a blocked URL that is not actually blocked', a
 test('settings persist an independent toggle and a custom recommendation age', async () => {
   storage.blockedKeywords = ['ia'];
 
-  const saved = await saveSettings({ hideOldVideos: false, maxAgeDays: 14 });
+  const saved = await saveSettings({ hideOldVideos: false, maxAgeHours: 336 });
 
   assert.deepEqual(saved, {
     hideOldVideos: false,
     hideGamesAndAds: true,
-    maxAgeDays: 14,
+    maxAgeHours: 336,
     blockKeywords: false,
     blockedKeywords: ['ia'],
     blockedChannels: [],
     allowedChannels: [],
   });
   assert.deepEqual(await getSettings(), saved);
+});
+
+test('the first read migrates the old day setting to hours once', async () => {
+  delete storage.maxAgeHours;
+  storage.maxAgeDays = 14;
+
+  const settings = await getSettings();
+
+  assert.equal(settings.maxAgeHours, 336);
+  assert.equal(storage.maxAgeHours, 336, 'the migrated value is written back');
 });
 
 test('the AI keyword preset is seeded once and never overwritten', async () => {
@@ -280,19 +291,19 @@ test('allowed channels persist in sync with name and handle', async () => {
 });
 
 test('invalid recommendation ages are rejected without changing saved settings', async () => {
-  await assert.rejects(saveSettings({ maxAgeDays: 0 }), /entre 1 e 365 dias/);
-  assert.equal(storage.maxAgeDays, 3);
+  await assert.rejects(saveSettings({ maxAgeHours: 0 }), /entre 1 e 8760 horas/);
+  assert.equal(storage.maxAgeHours, 72);
 });
 
 test('the service worker takes defaults and limits from the shared contract', () => {
   assert.deepEqual(DEFAULT_SETTINGS, {
     hideOldVideos: true,
     hideGamesAndAds: true,
-    maxAgeDays: 3,
+    maxAgeHours: 72,
     blockKeywords: false,
   });
   assert.deepEqual(LIMITS, {
-    maxAgeDays: { min: 1, max: 365 },
+    maxAgeHours: { min: 1, max: 8760 },
     maxListItems: 100,
     maxItemLength: 60,
     maxAllowedChannels: 50,
@@ -300,18 +311,18 @@ test('the service worker takes defaults and limits from the shared contract', ()
 });
 
 test('the age limit accepts the contract boundaries and persists them', async () => {
-  const min = LIMITS.maxAgeDays.min;
-  const max = LIMITS.maxAgeDays.max;
+  const min = LIMITS.maxAgeHours.min;
+  const max = LIMITS.maxAgeHours.max;
 
-  assert.equal((await saveSettings({ maxAgeDays: min })).maxAgeDays, 1);
-  assert.equal(storage.maxAgeDays, 1);
+  assert.equal((await saveSettings({ maxAgeHours: min })).maxAgeHours, 1);
+  assert.equal(storage.maxAgeHours, 1);
 
-  assert.equal((await saveSettings({ maxAgeDays: max })).maxAgeDays, 365);
-  assert.equal(storage.maxAgeDays, 365);
+  assert.equal((await saveSettings({ maxAgeHours: max })).maxAgeHours, 8760);
+  assert.equal(storage.maxAgeHours, 8760);
 
   await assert.rejects(
-    saveSettings({ maxAgeDays: max + 1 }),
-    /entre 1 e 365 dias/,
+    saveSettings({ maxAgeHours: max + 1 }),
+    /entre 1 e 8760 horas/,
   );
-  assert.equal(storage.maxAgeDays, 365, 'a rejected boundary does not overwrite the saved value');
+  assert.equal(storage.maxAgeHours, 8760, 'a rejected boundary does not overwrite the saved value');
 });

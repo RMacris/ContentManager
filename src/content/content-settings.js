@@ -41,6 +41,10 @@
 
   function buildReadDefaults() {
     const defaults = { ...contract.DEFAULT_SETTINGS };
+    // `null` revela se a chave existe: com o padrão de horas aqui, a leitura de
+    // uma aba aberta antes da migração esconderia a chave antiga em dias.
+    defaults.maxAgeHours = null;
+    defaults[contract.LEGACY_AGE_KEY] = null;
     for (let i = 0; i < contract.LIST_KEYS.length; i += 1) defaults[contract.LIST_KEYS[i]] = null;
     defaults[contract.ALLOWED_LIST_KEY] = null;
     return defaults;

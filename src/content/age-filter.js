@@ -3,8 +3,8 @@
  *
  * Esconde o card de vídeo cuja idade de publicação — a que o próprio YouTube
  * escreve no card ("há 4 dias", "1 week ago") — passa do limite escolhido no
- * popup (3 dias por padrão). O script não fala com a rede e não guarda nada
- * sobre os vídeos.
+ * popup (72 horas por padrão, exibido como 3 dias). O script não fala com a
+ * rede e não guarda nada sobre os vídeos.
  *
  * O segundo interruptor esconde o que não é vídeo e não tem data para julgar:
  * o card de jogo (`/playables/`, "Jogado N mil vezes") e o anúncio no feed
@@ -95,7 +95,7 @@
   let blockedKeywords = [];
   let blockedChannels = [];
   let allowedChannels = [];
-  let maxAgeDays = settingsContract.DEFAULT_SETTINGS.maxAgeDays;
+  let maxAgeHours = settingsContract.DEFAULT_SETTINGS.maxAgeHours;
   let started = false;
   let runtime = null;
   let cache = new WeakMap();
@@ -115,7 +115,7 @@
   function applySettings(settings) {
     hidingAged = settings.hideOldVideos;
     hidingPromoted = settings.hideGamesAndAds;
-    maxAgeDays = settings.maxAgeDays;
+    maxAgeHours = settings.maxAgeHours;
     blockingKeywords = settings.blockKeywords;
     blockedKeywords = settings.blockedKeywords;
     blockedChannels = settings.blockedChannels;
@@ -301,7 +301,7 @@
 
     let old = false;
     for (let i = 0; i < texts.length; i += 1) {
-      if (core.shouldHide(texts[i], maxAgeDays)) {
+      if (core.shouldHide(texts[i], maxAgeHours)) {
         old = true;
         break;
       }

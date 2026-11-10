@@ -10,13 +10,14 @@
  * "1 day ago"). Não existe timestamp absoluto no card, então a leitura é
  * aproximada de propósito — a mesma que o usuário vê.
  *
- * O limite de dias não mora aqui: quem chama passa o valor que veio do
+ * O limite não mora aqui: quem chama passa as horas que vieram do
  * `settings-contract.js` (dono do padrão e da faixa).
  */
 (function (root) {
   'use strict';
 
-  const DAY_SECONDS = 86400;
+  const HOUR_SECONDS = 3600;
+  const DAY_SECONDS = HOUR_SECONDS * 24;
 
   /** Fatores em segundos: as formas que o card mostra em pt e en. */
   const UNIT_SECONDS = {
@@ -32,14 +33,14 @@
     minutos: 60,
     minute: 60,
     minutes: 60,
-    h: 3600,
-    hs: 3600,
-    hora: 3600,
-    horas: 3600,
-    hour: 3600,
-    hours: 3600,
-    hr: 3600,
-    hrs: 3600,
+    h: HOUR_SECONDS,
+    hs: HOUR_SECONDS,
+    hora: HOUR_SECONDS,
+    horas: HOUR_SECONDS,
+    hour: HOUR_SECONDS,
+    hours: HOUR_SECONDS,
+    hr: HOUR_SECONDS,
+    hrs: HOUR_SECONDS,
     dia: DAY_SECONDS,
     dias: DAY_SECONDS,
     day: DAY_SECONDS,
@@ -171,30 +172,32 @@
   }
 
   /**
-   * A data é mais velha que `maxDays` dias? A comparação é estrita: o card de
-   * "3 dias" fica, o de "4 dias" some — é o "mais de 3 dias" que o usuário pediu.
+   * A data é mais velha que `maxHours` horas? A comparação é estrita: o card
+   * de "6 horas" fica com limite de 6 horas, o de "7 horas" some — é o "mais
+   * de 6 horas" que o usuário pediu.
    *
    * O limite é sempre explícito: o dono do padrão e da faixa é o
    * `settings-contract.js`, não este módulo. Um limite ausente ou inválido não
    * esconde nada, em vez de criar uma terceira cópia da política.
    */
-  function shouldHideAge(seconds, maxDays) {
+  function shouldHideAge(seconds, maxHours) {
     return (
       typeof seconds === 'number' &&
       Number.isFinite(seconds) &&
-      typeof maxDays === 'number' &&
-      Number.isFinite(maxDays) &&
-      maxDays > 0 &&
-      seconds > maxDays * DAY_SECONDS
+      typeof maxHours === 'number' &&
+      Number.isFinite(maxHours) &&
+      maxHours > 0 &&
+      seconds > maxHours * HOUR_SECONDS
     );
   }
 
   /** Atalho: o texto do card descreve uma publicação mais velha que o limite? */
-  function shouldHide(text, maxDays) {
-    return shouldHideAge(parseAge(text), maxDays);
+  function shouldHide(text, maxHours) {
+    return shouldHideAge(parseAge(text), maxHours);
   }
 
   root.YTIAgeFilter = {
+    HOUR_SECONDS,
     DAY_SECONDS,
     ACTION_WORDS,
     UNIT_SECONDS,

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Bloqueador de HTTP e Sites",
-  "version": "2.6.0",
+  "version": "2.7.0",
   "description": "Bloqueie sites, esconda vídeos antigos, jogos e anúncios e filtre títulos e canais no YouTube, com allowlist.",
   "permissions": [
     "storage",

@@ -18,11 +18,11 @@ test('the contract owns the settings defaults, keys and limits', () => {
   assert.deepEqual(contract.DEFAULT_SETTINGS, {
     hideOldVideos: true,
     hideGamesAndAds: true,
-    maxAgeDays: 3,
+    maxAgeHours: 72,
     blockKeywords: false,
   });
   assert.deepEqual(contract.LIMITS, {
-    maxAgeDays: { min: 1, max: 365 },
+    maxAgeHours: { min: 1, max: 8760 },
     maxListItems: 100,
     maxItemLength: 60,
     maxAllowedChannels: 50,
@@ -30,34 +30,36 @@ test('the contract owns the settings defaults, keys and limits', () => {
   assert.deepEqual([...contract.SETTING_KEYS], [
     'hideOldVideos',
     'hideGamesAndAds',
-    'maxAgeDays',
+    'maxAgeHours',
     'blockKeywords',
     'blockedKeywords',
     'blockedChannels',
     'allowedChannels',
   ]);
-  assert.equal(contract.isKnownKey('maxAgeDays'), true);
+  assert.equal(contract.isKnownKey('maxAgeHours'), true);
   assert.equal(contract.isKnownKey('blockedChannels'), true);
+  assert.equal(contract.isKnownKey('maxAgeDays'), false, 'the old day key is read-only');
   assert.equal(contract.isKnownKey('unknown'), false);
 });
 
 test('the contract validates the age limit at its boundaries', () => {
-  assert.equal(contract.isValidMaxAgeDays(contract.LIMITS.maxAgeDays.min), true);
-  assert.equal(contract.isValidMaxAgeDays(contract.LIMITS.maxAgeDays.max), true);
+  assert.equal(contract.isValidMaxAgeHours(contract.LIMITS.maxAgeHours.min), true);
+  assert.equal(contract.isValidMaxAgeHours(contract.LIMITS.maxAgeHours.max), true);
 
-  for (const invalid of [0, 366, 1.5, '3', null, Number.NaN]) {
-    assert.equal(contract.isValidMaxAgeDays(invalid), false, `${String(invalid)} is not a valid age`);
+  for (const invalid of [0, 8761, 1.5, '3', null, Number.NaN]) {
+    assert.equal(contract.isValidMaxAgeHours(invalid), false, `${String(invalid)} is not a valid age`);
   }
 
-  assert.equal(contract.normalizeMaxAgeDays(0), contract.DEFAULT_SETTINGS.maxAgeDays);
-  assert.equal(contract.normalizeMaxAgeDays(14), 14);
+  assert.equal(contract.normalizeMaxAgeHours(0), contract.DEFAULT_SETTINGS.maxAgeHours);
+  assert.equal(contract.normalizeMaxAgeHours(6), 6);
+  assert.equal(contract.normalizeMaxAgeHours(null, 14), 14 * contract.HOURS_PER_DAY);
 });
 
 test('the contract normalizes a full settings state', () => {
   assert.deepEqual(contract.normalizeSettings({}), {
     hideOldVideos: true,
     hideGamesAndAds: true,
-    maxAgeDays: 3,
+    maxAgeHours: 72,
     blockKeywords: false,
     blockedKeywords: [],
     blockedChannels: [],
@@ -68,7 +70,7 @@ test('the contract normalizes a full settings state', () => {
     contract.normalizeSettings({
       hideOldVideos: false,
       hideGamesAndAds: 0,
-      maxAgeDays: 999,
+      maxAgeHours: 99999,
       blockKeywords: 'yes',
       blockedKeywords: ['GPT-4', 'gpt 4'],
       blockedChannels: ['Rick'],
@@ -77,12 +79,27 @@ test('the contract normalizes a full settings state', () => {
     {
       hideOldVideos: false,
       hideGamesAndAds: true,
-      maxAgeDays: 3,
+      maxAgeHours: 72,
       blockKeywords: false,
       blockedKeywords: ['GPT-4'],
       blockedChannels: ['Rick'],
       allowedChannels: [{ name: 'Tech Brasil', handle: '@TechBR' }],
     },
+  );
+});
+
+test('the contract reads the old day setting as a migration fallback', () => {
+  assert.equal(contract.LEGACY_AGE_KEY, 'maxAgeDays');
+  assert.equal(contract.normalizeSettings({ maxAgeDays: 14 }).maxAgeHours, 336);
+  assert.equal(
+    contract.normalizeSettings({ maxAgeDays: 14, maxAgeHours: 6 }).maxAgeHours,
+    6,
+    'the canonical hours win once they exist',
+  );
+  assert.equal(
+    contract.normalizeSettings({ maxAgeDays: 999 }).maxAgeHours,
+    72,
+    'an invalid legacy value falls back to the default',
   );
 });
 
