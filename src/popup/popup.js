@@ -422,8 +422,8 @@ function updateModeHint() {
     const count = savedSettings.selectedChannels.length;
     hint.textContent =
       count === 0
-        ? 'Nenhum canal selecionado. Adicione um abaixo; até lá o filtro não restringe por canal.'
-        : `${count} ${count === 1 ? 'canal selecionado' : 'canais selecionados'} no feed.`;
+        ? 'Nenhum canal selecionado. Nada será recomendado enquanto a lista estiver vazia; adicione um abaixo.'
+        : `${count} ${count === 1 ? 'canal selecionado' : 'canais selecionados'} nas recomendações.`;
     return;
   }
 

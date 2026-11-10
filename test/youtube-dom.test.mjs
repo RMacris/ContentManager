@@ -36,6 +36,59 @@ function createReader() {
   return sandbox.YTIYouTubeDom;
 }
 
+test('the card selector covers every recommendation surface, including video pages', () => {
+  const dom = createReader();
+  const selector = dom.selectors.card;
+  const surfaces = [
+    'ytd-rich-item-renderer',
+    'ytd-video-renderer',
+    'ytd-grid-video-renderer',
+    'ytd-compact-video-renderer',
+    'ytd-compact-autoplay-renderer',
+    'ytd-compact-playlist-renderer',
+    'ytd-compact-radio-renderer',
+    'ytd-playlist-renderer',
+    'ytd-radio-renderer',
+    'ytd-reel-item-renderer',
+    'ytd-rich-grid-slim-media',
+    'ytm-shorts-lockup-view-model',
+    'ytd-shorts-lockup-view-model',
+    'yt-lockup-view-model',
+    '.ytp-ce-element',
+    '.ytp-autonav-endscreen-upnext-container',
+  ];
+  for (const surface of surfaces) {
+    assert.ok(selector.includes(surface), `${surface} is part of the scanned recommendation surfaces`);
+  }
+});
+
+test('watch page recommendation cards read title, channel and age like the feed cards', () => {
+  const dom = createReader();
+  const autoplay = classicVideoCard({
+    tagName: 'ytd-compact-autoplay-renderer',
+    title: 'A seguir',
+    channel: 'Retro Pulse',
+    handle: '@retro',
+    age: 'há 2 dias',
+  });
+  const read = dom.readCard(autoplay);
+  assert.equal(read.title, 'A seguir');
+  assert.equal(read.channels[0].name, 'Retro Pulse');
+  assert.equal(read.channels[0].handle, 'retro');
+  assert.ok(read.metadataTexts.includes('há 2 dias'), 'the autoplay card age is read like any other card');
+
+  const endScreen = classicVideoCard({
+    tagName: 'div',
+    className: 'ytp-ce-element',
+    title: 'Sugestão final',
+    channel: 'Outro Canal',
+    handle: '@outro',
+  });
+  const endRead = dom.readCard(endScreen);
+  assert.equal(endRead.title, 'Sugestão final');
+  assert.equal(endRead.channels[0].handle, 'outro');
+});
+
 test('a classic card exposes title, channel, metadata and the card target', () => {
   const dom = createReader();
   const card = classicVideoCard();

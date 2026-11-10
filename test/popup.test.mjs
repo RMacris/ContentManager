@@ -150,6 +150,7 @@ test('the popup activates the subscription-only mode and persists its source', a
   assert.equal(backend.state.channelMode, 'selected');
   assert.equal(popup.document.getElementById('selectedChannelsPanel').hidden, false);
   assert.match(popup.document.getElementById('modeHint').textContent, /Nenhum canal selecionado/);
+  assert.match(popup.document.getElementById('modeHint').textContent, /Nada será recomendado/);
 
   const input = popup.document.getElementById('selectedInput');
   input.value = 'tech';
@@ -167,6 +168,7 @@ test('the popup activates the subscription-only mode and persists its source', a
   await badges.children[0].children[2].dispatchEvent('click');
   assert.deepEqual(backend.state.selectedChannels, [], 'the x removes the selected channel');
   assert.equal(popup.document.getElementById('selectedEmpty').hidden, false);
+  assert.match(popup.document.getElementById('modeHint').textContent, /Nada será recomendado/);
 });
 
 test('blocked URLs can be added and removed from the popup', async () => {

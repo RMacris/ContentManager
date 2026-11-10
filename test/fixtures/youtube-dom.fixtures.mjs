@@ -157,8 +157,10 @@ export function classicVideoCard({
   age = 'há 6 dias',
   views = '1,2 mi de visualizações',
   link = '/watch?v=classic',
+  tagName = 'ytd-rich-item-renderer',
+  className = '',
 } = {}) {
-  const card = element('ytd-rich-item-renderer');
+  const card = element(tagName, { className });
   const content = element('div');
 
   const titleLink = element('a', { id: 'video-title', attrs: { href: link, title } });

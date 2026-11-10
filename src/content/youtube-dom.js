@@ -26,16 +26,44 @@
 
   const document = root.document;
 
-  /** Os cards de vídeo de hoje: rich item (home/canal), search e os antigos. */
+  /**
+   * Os cards de recomendação de vídeo de hoje: rich item (home/canal), busca,
+   * antigos, coluna lateral da página de vídeo (inclusive o "a seguir" e as
+   * playlists/mixes) e as prateleiras de Shorts. O mesmo seletor serve ao
+   * filtro normal e ao modo só inscrições; as listas que o usuário abriu
+   * (histórico, curtidos, assistir depois, playlists) continuam fora pelos
+   * caminhos de `age-filter.js`.
+   */
   const CARD_SELECTOR = [
     'ytd-rich-item-renderer',
+    'ytd-rich-grid-media',
     'ytd-video-renderer',
     'ytd-grid-video-renderer',
     'ytd-compact-video-renderer',
+    // Recomendações da página de vídeo: "a seguir", playlist, mix e filme.
+    'ytd-compact-autoplay-renderer',
+    'ytd-compact-playlist-renderer',
+    'ytd-compact-radio-renderer',
+    'ytd-compact-movie-renderer',
+    // Recomendações de playlist/mix/filme na busca e no feed.
+    'ytd-playlist-renderer',
+    'ytd-radio-renderer',
+    'ytd-movie-renderer',
     'yt-lockup-view-model',
+    // Shorts em prateleira; o player de Shorts não é julgado.
+    'ytd-reel-item-renderer',
+    'ytd-rich-grid-slim-media',
+    'ytm-shorts-lockup-view-model',
+    'ytm-shorts-lockup-view-model-v2',
+    'ytd-shorts-lockup-view-model',
+    // Tela final e "a seguir" dentro do player da página de vídeo.
+    '.ytp-ce-element',
+    '.ytp-autonav-endscreen-upnext-container',
     // Anúncio também é card: o slot no feed, o da busca e o da coluna lateral.
     'ytd-ad-slot-renderer',
     'ytd-promoted-sparkles-web-renderer',
+    'ytd-promoted-video-renderer',
+    'ytd-compact-promoted-video-renderer',
     'ytd-display-ad-renderer',
   ].join(',');
 
@@ -51,6 +79,7 @@
     'ytd-display-ad-renderer',
     'ytd-promoted-sparkles-web-renderer',
     'ytd-promoted-video-renderer',
+    'ytd-compact-promoted-video-renderer',
     'feed-ad-metadata-view-model',
     'ad-badge-view-model',
     'ytd-mini-game-card-view-model',
@@ -113,9 +142,9 @@
     'yt-lockup-view-model',
   ].join(',');
 
-  /** Prateleira da home (jogos, "assistir de novo"): some se ficar sem card. */
-  const SHELF_SELECTOR = 'ytd-rich-shelf-renderer';
-  const SHELF_ITEM_SELECTOR = 'ytd-rich-item-renderer';
+  /** Prateleira (home, jogos, Shorts): some se ficar sem card. */
+  const SHELF_SELECTOR = 'ytd-rich-shelf-renderer, ytd-reel-shelf-renderer';
+  const SHELF_ITEM_SELECTOR = 'ytd-rich-item-renderer, ytd-reel-item-renderer';
 
   /** A página de inscrições, de onde sai o catálogo de canais. */
   const CHANNELS_PAGE_PATH = '/feed/channels';

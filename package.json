@@ -1,6 +1,6 @@
 {
   "name": "content-manager-extension",
-  "version": "2.8.0",
+  "version": "2.9.0",
   "private": true,
   "type": "module",
   "description": "Extensão do Chrome: bloqueio de URLs e filtro do feed do YouTube (idade, jogos e anúncios).",

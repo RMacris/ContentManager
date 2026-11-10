@@ -216,14 +216,19 @@ principal liga o modo; dentro dele, um **switch vertical de duas posições** es
   palavras-chave, com busca nas inscrições e badges removíveis).
 - **↓ Inscrições**: todos os canais do catálogo coletado em `youtube.com/feed/channels`.
 
-O modo é uma restrição **por cima** dos outros filtros: a idade máxima e o bloqueio por
-palavras-chave/canais continuam valendo quando estão ligados. Jogos e anúncios não têm canal e somem;
-a allowlist de **Sempre recomendados** não se aplica nesse modo, porque a fonte escolhida é a última
-palavra. Shorts, histórico e listas salvas continuam fora do escopo, como no filtro normal.
+O modo vale para **todas as superfícies de recomendação** do YouTube: feed, inscrições, busca, página
+de canal, coluna lateral da página de vídeo, o "a seguir"/autoplay, a tela final do player e as
+prateleiras de Shorts. É uma restrição **por cima** dos outros filtros: a idade máxima e o bloqueio
+por palavras-chave/canais continuam valendo quando estão ligados. Jogos e anúncios não têm canal e
+somem; a allowlist de **Sempre recomendados** não se aplica nesse modo, porque a fonte escolhida é a
+última palavra. Histórico, curtidos, assistir depois, playlists e biblioteca continuam fora, como no
+filtro normal — ali está o que o usuário escolheu abrir, não uma recomendação.
 
-Se a fonte ainda estiver vazia — nenhum canal selecionado ou catálogo nunca coletado — o modo **falha
-aberto**: o feed não é restringido e o popup avisa como preencher a lista. O catálogo chega ao filtro
-pelo mesmo feed das preferências e uma coleta nova atualiza as abas abertas sem recarregar.
+Se a fonte **Selecionados** estiver vazia, o modo **falha fechado**: nada é recomendado e o popup
+avisa como preencher a lista. A fonte **Inscrições** depende do catálogo coletado; se ele ainda não
+existe, o modo **falha aberto** — o feed não é restringido e o popup mostra o atalho para a coleta. O
+catálogo chega ao filtro pelo mesmo feed das preferências e uma coleta nova atualiza as abas abertas
+sem recarregar.
 
 ### Instância órfã
 
@@ -345,8 +350,9 @@ O **feed dos content scripts** tem suíte própria (`test/content-settings.test.
 storage, um listener e a ordem que faz uma mudança vencer uma leitura inicial atrasada. Ele entrega
 as preferências e o catálogo de inscrições juntos; o filtro e o chip assinam esse feed em vez de cada
 um montar o próprio `chrome.storage`. O **modo só inscrições** é coberto em `test/age-filter.test.mjs`:
-restrição por fonte, idade e palavra-chave por cima, allowlist ignorada, Shorts fora e fonte vazia
-falhando aberto.
+restrição por fonte no feed, na busca, na página de vídeo e nas prateleiras de Shorts; idade e
+palavra-chave por cima; allowlist ignorada; "Selecionados" vazio falhando fechado e "Inscrições"
+vazio falhando aberto.
 
 O **catálogo de inscrições** tem duas suítes: `test/channels.test.mjs` fixa a identidade (um canal
 com handle e outro sem viram uma linha só, pelo `channel-rules.js`) e o teto de 60 caracteres que a

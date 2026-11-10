@@ -165,7 +165,7 @@ test('the subscription-only mode keeps recency and keyword filters on top of the
   assert.equal(subscribedKeyword.style.display, 'none', 'keywords still apply inside the mode');
   assert.equal(otherRecent.style.display, 'none', 'a channel outside the subscriptions is hidden');
   assert.equal(promoted.style.display, 'none', 'promoted cards have no channel and are hidden');
-  assert.equal(shorts.style.display, '', 'Shorts stay outside the mode, as before');
+  assert.equal(shorts.style.display, 'none', 'Shorts are a recommendation surface and follow the source too');
   assert.equal(selectedOnly.style.display, '', 'the subscribed source ignores the selected list');
 
   run.change({ channelMode: { newValue: 'selected' } });
@@ -176,7 +176,10 @@ test('the subscription-only mode keeps recency and keyword filters on top of the
 
   run.change({ selectedChannels: { newValue: [] } });
   flushTimers(run.timers);
-  assert.equal(otherRecent.style.display, '', 'an empty source fails open instead of blanking the feed');
+  assert.equal(subscribedRecent.style.display, 'none', 'an empty selected source fails closed');
+  assert.equal(otherRecent.style.display, 'none', 'nothing is recommended with an empty selected source');
+  assert.equal(selectedOnly.style.display, 'none', 'the previously selected channel is hidden too');
+  assert.equal(shorts.style.display, 'none', 'Shorts are recommendations and disappear with an empty selected source');
   assert.equal(subscribedKeyword.style.display, 'none', 'keywords still apply with an empty source');
 
   run.change({ channelMode: { newValue: 'off' } });
@@ -184,6 +187,7 @@ test('the subscription-only mode keeps recency and keyword filters on top of the
   assert.equal(otherRecent.style.display, '', 'turning the mode off restores the normal filter');
   assert.equal(subscribedOld.style.display, 'none', 'the normal age filter still hides the old card');
   assert.equal(promoted.style.display, '', 'the games/ads switch was off, so the promo returns');
+  assert.equal(shorts.style.display, '', 'the normal filter still leaves Shorts alone');
 });
 
 test('the subscription-only mode follows the catalog as it is collected', () => {
@@ -228,7 +232,166 @@ test('the subscription-only mode follows the catalog as it is collected', () => 
   assert.equal(other.style.display, 'none', 'the newly known non-subscribed channel is hidden');
 });
 
-function runChannelModeScenario({ settings, catalog = [], cards }) {
+test('the mode reaches the recommendation surfaces of a watch page in both sources', () => {
+  const selected = createKeywordCard({
+    title: 'Receita de bolo',
+    channel: 'Cozinha da Vovó',
+    handle: '@vovo',
+    ageText: 'há 2 horas',
+  });
+  const selectedShorts = createKeywordCard({
+    title: 'Short da vovó',
+    channel: 'Cozinha da Vovó',
+    handle: '@vovo',
+    ageText: 'há 1 hora',
+    shorts: true,
+  });
+  const other = createKeywordCard({
+    title: 'Vídeo de outro canal',
+    channel: 'Canal Ruim',
+    handle: '@ruim',
+    ageText: 'há 1 hora',
+  });
+  const autoplay = createKeywordCard({
+    title: 'A seguir',
+    channel: 'Outro canal',
+    handle: '@outro',
+    ageText: 'há 1 hora',
+  });
+  const endScreen = createKeywordCard({
+    title: 'Sugestão da tela final',
+    channel: 'Mais um canal',
+    handle: '@mais',
+    ageText: 'há 1 hora',
+  });
+  const otherShorts = createKeywordCard({
+    title: 'Short de outro canal',
+    channel: 'Outro canal',
+    handle: '@outro',
+    ageText: 'há 1 hora',
+    shorts: true,
+  });
+
+  const run = runChannelModeScenario({
+    pathname: '/watch',
+    settings: {
+      hideOldVideos: true,
+      hideGamesAndAds: false,
+      maxAgeHours: 72,
+      channelMode: 'selected',
+      blockKeywords: false,
+      blockedKeywords: [],
+      blockedChannels: [],
+      selectedChannels: [{ name: 'Cozinha da Vovó', handle: '@vovo' }],
+      allowedChannels: [],
+    },
+    catalog: [{ name: 'Cozinha da Vovó', handle: '@vovo' }],
+    cards: [selected, selectedShorts, other, autoplay, endScreen, otherShorts],
+  });
+  flushTimers(run.timers);
+
+  assert.equal(selected.style.display, '', 'a selected channel stays on the watch page');
+  assert.equal(selectedShorts.style.display, '', 'a Short from a selected channel stays');
+  assert.equal(other.style.display, 'none', 'the watch sidebar obeys the selected source');
+  assert.equal(autoplay.style.display, 'none', 'the "up next" autoplay card obeys the selected source');
+  assert.equal(endScreen.style.display, 'none', 'the player end screen obeys the selected source');
+  assert.equal(otherShorts.style.display, 'none', 'a Short shelf obeys the selected source');
+
+  run.change({ channelMode: { newValue: 'subscribed' } });
+  flushTimers(run.timers);
+  assert.equal(selected.style.display, '', 'a subscribed channel stays on the watch page');
+  assert.equal(selectedShorts.style.display, '', 'a Short from a subscribed channel stays');
+  assert.equal(other.style.display, 'none', 'the watch sidebar obeys the subscribed source');
+  assert.equal(autoplay.style.display, 'none', 'the autoplay card obeys the subscribed source');
+  assert.equal(endScreen.style.display, 'none', 'the end screen obeys the subscribed source');
+  assert.equal(otherShorts.style.display, 'none', 'a Short shelf obeys the subscribed source');
+
+  run.change({ channelMode: { newValue: 'selected' }, selectedChannels: { newValue: [] } });
+  flushTimers(run.timers);
+  assert.equal(selected.style.display, 'none', 'an empty selected source blanks the watch page recommendations');
+  assert.equal(selectedShorts.style.display, 'none');
+  assert.equal(autoplay.style.display, 'none');
+  assert.equal(endScreen.style.display, 'none');
+});
+
+test('the normal age filter reaches the new watch page recommendation cards', () => {
+  const oldAutoplay = createKeywordCard({
+    title: 'A seguir antigo',
+    channel: 'Canal',
+    handle: '@canal',
+    ageText: 'há 8 dias',
+  });
+  const oldEndScreen = createKeywordCard({
+    title: 'Sugestão antiga',
+    channel: 'Canal',
+    handle: '@canal',
+    ageText: 'há 8 dias',
+  });
+  const oldShorts = createKeywordCard({
+    title: 'Short antigo',
+    channel: 'Canal',
+    handle: '@canal',
+    ageText: 'há 8 dias',
+    shorts: true,
+  });
+
+  const run = runChannelModeScenario({
+    pathname: '/watch',
+    settings: {
+      hideOldVideos: true,
+      hideGamesAndAds: false,
+      maxAgeHours: 72,
+      channelMode: 'off',
+      blockKeywords: false,
+      blockedKeywords: [],
+      blockedChannels: [],
+      selectedChannels: [],
+      allowedChannels: [],
+    },
+    cards: [oldAutoplay, oldEndScreen, oldShorts],
+  });
+  flushTimers(run.timers);
+
+  assert.equal(oldAutoplay.style.display, 'none', 'the autoplay card obeys the age filter');
+  assert.equal(oldEndScreen.style.display, 'none', 'the end screen card obeys the age filter');
+  assert.equal(oldShorts.style.display, '', 'the normal filter still leaves Shorts alone');
+});
+
+test('the mode leaves the user own lists untouched', () => {
+  const history = createKeywordCard({
+    title: 'Assistido ontem',
+    channel: 'Canal Ruim',
+    handle: '@ruim',
+    ageText: 'Assistido há 1 dia',
+  });
+  const playlist = createKeywordCard({
+    title: 'Item da playlist',
+    channel: 'Canal Ruim',
+    handle: '@ruim',
+    ageText: 'há 1 ano',
+  });
+  const settings = {
+    hideOldVideos: true,
+    hideGamesAndAds: false,
+    maxAgeHours: 72,
+    channelMode: 'selected',
+    blockKeywords: false,
+    blockedKeywords: [],
+    blockedChannels: [],
+    selectedChannels: [],
+    allowedChannels: [],
+  };
+
+  const historyRun = runChannelModeScenario({ pathname: '/feed/history', settings, cards: [history] });
+  flushTimers(historyRun.timers);
+  assert.equal(history.style.display, '', 'history is a list the user opened, not a recommendation surface');
+
+  const playlistRun = runChannelModeScenario({ pathname: '/playlist', settings, cards: [playlist] });
+  flushTimers(playlistRun.timers);
+  assert.equal(playlist.style.display, '', 'a playlist the user opened is out of scope');
+});
+
+function runChannelModeScenario({ settings, catalog = [], cards, pathname = '/' }) {
   const timers = [];
   const storageListeners = [];
 
@@ -278,7 +441,7 @@ function runChannelModeScenario({ settings, catalog = [], cards }) {
     {
       chrome,
       document,
-      location: { pathname: '/' },
+      location: { pathname },
       NodeFilter: { SHOW_TEXT: 4 },
       MutationObserver: class {
         observe() {}

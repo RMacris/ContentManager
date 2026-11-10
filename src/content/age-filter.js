@@ -15,10 +15,12 @@
  * canal está na lista de canais (`blockedChannels`). A ocultação é a mesma da
  * idade: `display: none` com marca no card, sem remover nó.
  *
- * Shorts ficam de fora: o bloqueio de URL que já existe continua sendo o dono
- * desse caminho. Histórico e listas salvas também: ali a data é uma ação do
- * usuário ("Assistido há…"), não uma recomendação — e esconder o item apagaria
- * a própria lista que ele abriu.
+ * No filtro normal, Shorts ficam de fora: o bloqueio de URL que já existe
+ * continua sendo o dono desse caminho. No modo só inscrições, porém, eles são
+ * uma superfície de recomendação como as outras e obedecem à fonte escolhida.
+ * Histórico e listas salvas continuam fora nos dois casos: ali a data é uma
+ * ação do usuário ("Assistido há…"), não uma recomendação — e esconder o item
+ * apagaria a própria lista que ele abriu.
  *
  * A leitura do DOM — seletores, título, canais, metadados e o card de
  * inscrição — mora em `youtube-dom.js`. Aqui ficam só as regras: classificar o
@@ -186,7 +188,7 @@
    *
    * O YouTube não recolhe a prateleira sozinho: esconder os jogos deixaria o
    * título "Jogar" com um vazio embaixo. Só some a prateleira cujos cards
-   * foram todos marcados por este filtro — a de Shorts, que nunca é tocada,
+   * foram todos marcados por este filtro; uma prateleira com card não tocado
    * continua de pé.
    */
   function collapseShelves() {
@@ -323,24 +325,32 @@
   }
 
   /**
-   * O modo só inscrições restringe o card ao canal da fonte escolhida. Os
-   * filtros de palavra-chave e de idade continuam valendo por cima; a
-   * allowlist de Sempre recomendados não se aplica, porque neste modo a fonte
-   * é a última palavra. Anúncio e jogo não têm canal e somem; Shorts seguem
-   * fora do filtro, como no comportamento normal.
+   * O modo só inscrições restringe o card ao canal da fonte escolhida em toda
+   * superfície de recomendação — feed, busca, canal, página de vídeo, tela
+   * final do player e prateleiras de Shorts. Os filtros de palavra-chave e de
+   * idade continuam valendo por cima; a allowlist de Sempre recomendados não
+   * se aplica, porque neste modo a fonte é a última palavra. Anúncio e jogo
+   * não têm canal e somem.
+   *
+   * A fonte "Selecionados" vazia falha fechada: sem nenhum canal escolhido,
+   * nada é recomendado. A fonte "Inscrições" vazia continua falhando aberta,
+   * porque o catálogo depende de uma coleta que o usuário ainda pode não ter
+   * feito — e um feed em branco nesse caso seria uma armadilha.
    */
   function evaluateChannelMode(read, card) {
     if (read.promoted) {
       hide(card);
       return;
     }
-    if (read.shorts) {
-      show(card);
-      return;
-    }
 
     const source = channelMode === 'selected' ? selectedChannels : subscribedChannels;
     const index = channelMode === 'selected' ? selectedIndex : subscribedIndex;
+    // Sem canal escolhido não há o que comparar: esconde sem ler o card.
+    if (channelMode === 'selected' && source.length === 0) {
+      hide(card);
+      return;
+    }
+
     const channels = read.channels;
     if (source.length > 0 && (channels.length === 0 || !matchesChannelList(channels, index, card))) {
       hide(card);
