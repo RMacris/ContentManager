@@ -207,6 +207,24 @@ O catálogo nunca sai da máquina: nenhuma chamada de rede, nenhuma API do YouTu
 de inscrições quando o usuário a visita. Sem catálogo ainda, o popup mostra o atalho para abrir a
 página. As mudanças valem na hora, com o mesmo rescan das outras listas.
 
+## Modo só inscrições
+
+A seção **Modo só inscrições** restringe as recomendações a uma fonte de canais. O interruptor
+principal liga o modo; dentro dele, um **switch vertical de duas posições** escolhe a fonte:
+
+- **↑ Selecionados**: só os canais da lista escolhida no próprio painel (mesmo formato da lista de
+  palavras-chave, com busca nas inscrições e badges removíveis).
+- **↓ Inscrições**: todos os canais do catálogo coletado em `youtube.com/feed/channels`.
+
+O modo é uma restrição **por cima** dos outros filtros: a idade máxima e o bloqueio por
+palavras-chave/canais continuam valendo quando estão ligados. Jogos e anúncios não têm canal e somem;
+a allowlist de **Sempre recomendados** não se aplica nesse modo, porque a fonte escolhida é a última
+palavra. Shorts, histórico e listas salvas continuam fora do escopo, como no filtro normal.
+
+Se a fonte ainda estiver vazia — nenhum canal selecionado ou catálogo nunca coletado — o modo **falha
+aberto**: o feed não é restringido e o popup avisa como preencher a lista. O catálogo chega ao filtro
+pelo mesmo feed das preferências e uma coleta nova atualiza as abas abertas sem recarregar.
+
 ### Instância órfã
 
 Recarregar a extensão invalida o contexto dos content scripts já injetados, mas **não mata** os timers
@@ -262,7 +280,9 @@ configuração de fora. O que ela sabe mora no `chrome.storage` do próprio perf
 
 A seção **Filtro do YouTube** do popup tem duas caixas ligadas por padrão: **"Ocultar vídeos antigos"**
 (`hideOldVideos`) e **"Ocultar jogos e anúncios"** (`hideGamesAndAds`), além do limite **Idade máxima**
-(`maxAgeHours`, de 1 a 8760 horas, padrão 72; a tela mostra em dias quando a conta é exata). A seção **Palavras-chave e canais** traz o interruptor
+(`maxAgeHours`, de 1 a 8760 horas, padrão 72; a tela mostra em dias quando a conta é exata). A seção
+**Modo só inscrições** guarda `channelMode` (`off`/`selected`/`subscribed`) e a lista
+`selectedChannels` (nome + handle); a seção **Palavras-chave e canais** traz o interruptor
 `blockKeywords` (desligado por padrão) e as listas `blockedKeywords`/`blockedChannels`; a seção
 **Sempre recomendados** guarda `allowedChannels` (nome + handle) e o catálogo de inscrições vive em
 `chrome.storage.local`. As preferências
@@ -322,8 +342,11 @@ normalização. O popup monta os controles a partir dele e o service worker cont
 autoridade que valida e grava em `chrome.storage.sync`.
 
 O **feed dos content scripts** tem suíte própria (`test/content-settings.test.mjs`): uma leitura do
-storage, um listener e a ordem que faz uma mudança vencer uma leitura inicial atrasada. O filtro e o
-chip assinam esse feed em vez de cada um montar o próprio `chrome.storage`.
+storage, um listener e a ordem que faz uma mudança vencer uma leitura inicial atrasada. Ele entrega
+as preferências e o catálogo de inscrições juntos; o filtro e o chip assinam esse feed em vez de cada
+um montar o próprio `chrome.storage`. O **modo só inscrições** é coberto em `test/age-filter.test.mjs`:
+restrição por fonte, idade e palavra-chave por cima, allowlist ignorada, Shorts fora e fonte vazia
+falhando aberto.
 
 O **catálogo de inscrições** tem duas suítes: `test/channels.test.mjs` fixa a identidade (um canal
 com handle e outro sem viram uma linha só, pelo `channel-rules.js`) e o teto de 60 caracteres que a

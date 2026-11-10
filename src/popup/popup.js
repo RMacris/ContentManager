@@ -13,6 +13,7 @@ const MAX_SUGGESTIONS = 8;
 let savedSettings = settingsContract.normalizeSettings({});
 let channelCatalog = [];
 let allowMatches = [];
+let selectedMatches = [];
 let displayedAgeUnit = 'days';
 
 document.addEventListener('DOMContentLoaded', initialize);
@@ -29,9 +30,17 @@ async function initialize() {
   document.getElementById('channelForm').addEventListener('submit', handleAddChannel);
   document.getElementById('allowForm').addEventListener('submit', handleAddAllowed);
   document.getElementById('allowInput').addEventListener('input', renderAllowSuggestions);
-  document.getElementById('openChannelsPage').addEventListener('click', () => {
+  document.getElementById('channelMode').addEventListener('change', handleChannelMode);
+  document.getElementById('channelSourceSelected').addEventListener('change', handleChannelModeSource);
+  document.getElementById('channelSourceSubscribed').addEventListener('change', handleChannelModeSource);
+  document.getElementById('selectedForm').addEventListener('submit', handleAddSelected);
+  document.getElementById('selectedInput').addEventListener('input', renderSelectedSuggestions);
+
+  const openChannelsPage = () => {
     chrome.tabs.create({ url: 'https://www.youtube.com/feed/channels' });
-  });
+  };
+  document.getElementById('openChannelsPage').addEventListener('click', openChannelsPage);
+  document.getElementById('openChannelsPageFromMode').addEventListener('click', openChannelsPage);
 
   const sidePanelButton = document.getElementById('openSidePanel');
   sidePanelButton.addEventListener('click', handleOpenSidePanel);
@@ -68,6 +77,9 @@ function applySettingsChanges(changes) {
   if (changes.blockedChannels) {
     savedSettings.blockedChannels = settingsContract.normalizeList(changes.blockedChannels.newValue);
   }
+  if (changes.selectedChannels) {
+    savedSettings.selectedChannels = settingsContract.normalizeSelectedList(changes.selectedChannels.newValue) ?? [];
+  }
   if (changes.allowedChannels) {
     savedSettings.allowedChannels = settingsContract.normalizeAllowedList(changes.allowedChannels.newValue);
   }
@@ -79,6 +91,10 @@ function applySettingsChanges(changes) {
     if (settingsContract.isValidMaxAgeHours(maxAgeHours)) {
       savedSettings.maxAgeHours = maxAgeHours;
     }
+  }
+  if (changes.channelMode) {
+    const channelMode = changes.channelMode.newValue;
+    if (settingsContract.isValidChannelMode(channelMode)) savedSettings.channelMode = channelMode;
   }
 
   updateSettingsControls();
@@ -97,7 +113,7 @@ function applySettingsContract() {
   if (hint) hint.textContent = `De ${formatAge(min)} a ${formatAge(max)}.`;
 
   const maxLength = settingsContract.LIMITS.maxItemLength;
-  for (const id of ['keywordInput', 'channelInput', 'allowInput']) {
+  for (const id of ['keywordInput', 'channelInput', 'allowInput', 'selectedInput']) {
     const input = document.getElementById(id);
     if (input) input.maxLength = maxLength;
   }
@@ -211,6 +227,9 @@ async function loadStatus() {
     document.getElementById('maxAge'),
     document.getElementById('maxAgeUnit'),
     document.getElementById('blockKeywords'),
+    document.getElementById('channelMode'),
+    document.getElementById('selectedInput'),
+    document.getElementById('addSelected'),
   ];
   controls.forEach((control) => {
     control.disabled = true;
@@ -231,6 +250,7 @@ async function loadStatus() {
     controls.forEach((control) => {
       control.disabled = false;
     });
+    renderChannelMode();
   }
 }
 
@@ -241,7 +261,9 @@ function updateSettingsControls() {
   document.getElementById('blockKeywords').checked = savedSettings.blockKeywords;
   renderKeywordList();
   renderChannelList();
+  renderSelectedChannels();
   renderAllowedChannels();
+  renderChannelMode();
 }
 
 /** A idade viaja em horas; a tela mostra dias quando a conta é exata. */
@@ -366,6 +388,177 @@ async function handleBlockKeywords() {
     ? 'Palavras-chave e canais serão bloqueados nos títulos e canais dos vídeos.'
     : 'Bloqueio por palavras-chave e canais desativado.';
   await persistSetting('blockKeywords', checked, control, message);
+}
+
+/* ------------------------------------------------------ modo só inscrições */
+
+function renderChannelMode() {
+  const active = savedSettings.channelMode !== 'off';
+  const source = active ? savedSettings.channelMode : 'subscribed';
+
+  document.getElementById('channelMode').checked = active;
+  document.getElementById('channelSourceSelected').checked = source === 'selected';
+  document.getElementById('channelSourceSubscribed').checked = source === 'subscribed';
+  document.getElementById('channelModeSourceField').disabled = !active;
+  document.getElementById('channelSourceSelected').disabled = !active;
+  document.getElementById('channelSourceSubscribed').disabled = !active;
+  document.getElementById('selectedChannelsPanel').hidden = !(active && source === 'selected');
+  updateModeHint();
+}
+
+function updateModeHint() {
+  const hint = document.getElementById('modeHint');
+  if (!hint) return;
+
+  if (savedSettings.channelMode === 'subscribed') {
+    hint.textContent =
+      channelCatalog.length === 0
+        ? 'Nenhum canal inscrito coletado ainda. Abra a página de inscrições para guardar a lista; até lá o filtro não restringe por canal.'
+        : `${channelCatalog.length} canais inscritos coletados. Só eles aparecem no feed.`;
+    return;
+  }
+
+  if (savedSettings.channelMode === 'selected') {
+    const count = savedSettings.selectedChannels.length;
+    hint.textContent =
+      count === 0
+        ? 'Nenhum canal selecionado. Adicione um abaixo; até lá o filtro não restringe por canal.'
+        : `${count} ${count === 1 ? 'canal selecionado' : 'canais selecionados'} no feed.`;
+    return;
+  }
+
+  hint.textContent = 'Desligado: os filtros de idade, jogos/anúncios e palavras-chave continuam valendo normalmente.';
+}
+
+async function handleChannelMode() {
+  const control = document.getElementById('channelMode');
+  const mode = control.checked ? 'subscribed' : 'off';
+  const message = mode === 'off' ? 'Modo só inscrições desativado.' : 'Modo só inscrições ativado: todas as inscrições.';
+  await persistChannelMode(mode, message);
+}
+
+async function handleChannelModeSource() {
+  const mode = document.getElementById('channelSourceSelected').checked ? 'selected' : 'subscribed';
+  if (savedSettings.channelMode === mode) return;
+  const message = mode === 'selected' ? 'Fonte: só os canais selecionados.' : 'Fonte: todos os canais inscritos.';
+  await persistChannelMode(mode, message);
+}
+
+function setChannelModeBusy(busy) {
+  document.getElementById('channelMode').disabled = busy;
+  document.getElementById('selectedInput').disabled = busy;
+  document.getElementById('addSelected').disabled = busy;
+  document.getElementById('channelSourceSelected').disabled = busy || savedSettings.channelMode === 'off';
+  document.getElementById('channelSourceSubscribed').disabled = busy || savedSettings.channelMode === 'off';
+}
+
+async function persistChannelMode(mode, successMessage) {
+  const previous = savedSettings.channelMode;
+  setChannelModeBusy(true);
+  try {
+    const response = await sendMessage({ action: 'saveSettings', patch: { channelMode: mode } });
+    if (response.action !== 'saveSettings' || response.ok !== true) {
+      throw new Error('Não foi possível salvar o modo.');
+    }
+    savedSettings = settingsContract.normalizeSettings(response.settings);
+    updateSettingsControls();
+    displayMessage('modeMessage', successMessage, false);
+  } catch (error) {
+    savedSettings.channelMode = previous;
+    updateSettingsControls();
+    displayMessage('modeMessage', error.message, true);
+  } finally {
+    setChannelModeBusy(false);
+    renderChannelMode();
+  }
+}
+
+function renderSelectedChannels() {
+  const values = Array.isArray(savedSettings.selectedChannels) ? savedSettings.selectedChannels : [];
+  const container = document.getElementById('selectedBadges');
+  container.innerHTML = '';
+  values.forEach((entry) => container.appendChild(createSelectedBadge(entry)));
+
+  document.getElementById('selectedCount').textContent = String(values.length);
+  document.getElementById('selectedEmpty').hidden = values.length > 0;
+}
+
+function createSelectedBadge(entry) {
+  const badge = document.createElement('span');
+  badge.className = 'badge allowed-badge';
+  badge.appendChild(createChannelAvatar(entry, 'allowed-avatar', 'allowed-avatar-fallback'));
+
+  const name = document.createElement('span');
+  name.className = 'allowed-name';
+  name.textContent = entry.name;
+  badge.appendChild(name);
+
+  const removeButton = document.createElement('button');
+  removeButton.type = 'button';
+  removeButton.className = 'badge-remove';
+  removeButton.textContent = '×';
+  removeButton.setAttribute('aria-label', `Remover ${entry.name}`);
+  removeButton.addEventListener('click', async () => {
+    const current = Array.isArray(savedSettings.selectedChannels) ? savedSettings.selectedChannels : [];
+    await persistSelected(
+      current.filter((item) => !channelRules.sameChannel(item, entry)),
+      `${entry.name} removido dos canais selecionados.`,
+    );
+  });
+  badge.appendChild(removeButton);
+  return badge;
+}
+
+function renderSelectedSuggestions() {
+  const query = normalizeChannelText(document.getElementById('selectedInput').value);
+  const container = document.getElementById('selectedSuggestions');
+  selectedMatches = query === '' ? [] : searchCatalog(query);
+  container.innerHTML = '';
+  container.hidden = selectedMatches.length === 0;
+  selectedMatches.forEach((entry) => container.appendChild(createSuggestion(entry, addSelectedChannel)));
+}
+
+async function handleAddSelected(event) {
+  event.preventDefault();
+  if (selectedMatches.length === 0) renderSelectedSuggestions();
+  if (selectedMatches.length === 0) {
+    displayMessage('modeMessage', 'Nenhum canal encontrado nas suas inscrições com esse nome.', true);
+    return;
+  }
+  await addSelectedChannel(selectedMatches[0]);
+}
+
+async function addSelectedChannel(entry) {
+  const current = Array.isArray(savedSettings.selectedChannels) ? savedSettings.selectedChannels : [];
+  if (current.some((item) => channelRules.sameChannel(item, entry))) {
+    displayMessage('modeMessage', `“${entry.name}” já está na lista.`, true);
+    return;
+  }
+
+  const next = [...current, { name: entry.name, handle: entry.handle || '' }];
+  const saved = await persistSelected(next, `${entry.name} sempre aparecerá no modo.`);
+  if (saved) {
+    document.getElementById('selectedInput').value = '';
+    renderSelectedSuggestions();
+  }
+}
+
+async function persistSelected(nextValues, successMessage) {
+  try {
+    const response = await sendMessage({ action: 'saveSettings', patch: { selectedChannels: nextValues } });
+    if (response.action !== 'saveSettings' || response.ok !== true) {
+      throw new Error('Não foi possível salvar a lista.');
+    }
+    savedSettings = settingsContract.normalizeSettings(response.settings);
+    renderSelectedChannels();
+    renderChannelMode();
+    displayMessage('modeMessage', successMessage, false);
+    return true;
+  } catch (error) {
+    renderSelectedChannels();
+    displayMessage('modeMessage', error.message, true);
+    return false;
+  }
 }
 
 /* ------------------------------------------------------- palavras e canais */
@@ -497,9 +690,11 @@ async function loadChannelCatalog() {
       channelCatalog.length === 0
         ? 'Nenhum canal coletado ainda. Abra a página de inscrições para a extensão guardar a lista.'
         : `${channelCatalog.length} canais inscritos coletados. Digite o nome e escolha a sugestão.`;
+    updateModeHint();
   } catch (error) {
     channelCatalog = [];
     displayMessage('allowMessage', error.message, true);
+    updateModeHint();
   }
 }
 
@@ -525,10 +720,10 @@ function renderAllowSuggestions() {
   allowMatches = query === '' ? [] : searchCatalog(query);
   container.innerHTML = '';
   container.hidden = allowMatches.length === 0;
-  allowMatches.forEach((entry) => container.appendChild(createSuggestion(entry)));
+  allowMatches.forEach((entry) => container.appendChild(createSuggestion(entry, addAllowedChannel)));
 }
 
-function createSuggestion(entry) {
+function createSuggestion(entry, onPick) {
   const button = document.createElement('button');
   button.type = 'button';
   button.className = 'suggestion';
@@ -549,7 +744,7 @@ function createSuggestion(entry) {
   button.appendChild(copy);
 
   button.addEventListener('click', async () => {
-    await addAllowedChannel(entry);
+    await onPick(entry);
   });
   return button;
 }

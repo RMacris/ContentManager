@@ -117,6 +117,58 @@ test('the popup saves recency in hours and keeps the duration when the unit chan
   assert.match(popup.document.getElementById('filterMessage').textContent, /dias inteiros/);
 });
 
+test('the popup activates the subscription-only mode and persists its source', async () => {
+  backend.setChannelCatalog({
+    updatedAt: 1,
+    channels: [
+      { name: 'Tech Brasil', handle: '@TechBR', avatarUrl: 'https://yt3.example/tech.jpg' },
+      { name: 'Cozinha da Vovó', handle: '@vovo', avatarUrl: '' },
+    ],
+  });
+
+  const popup = mountPopup();
+  await popup.document.dispatchEvent('DOMContentLoaded');
+
+  const toggle = popup.document.getElementById('channelMode');
+  const fieldset = popup.document.getElementById('channelModeSourceField');
+  assert.equal(toggle.checked, false);
+  assert.equal(fieldset.disabled, true, 'the source switch is disabled while the mode is off');
+  assert.equal(popup.document.getElementById('selectedChannelsPanel').hidden, true);
+  assert.match(popup.document.getElementById('modeHint').textContent, /Desligado/);
+
+  toggle.checked = true;
+  await toggle.dispatchEvent('change');
+  assert.equal(backend.state.channelMode, 'subscribed');
+  assert.equal(popup.document.getElementById('channelSourceSubscribed').checked, true);
+  assert.equal(fieldset.disabled, false);
+  assert.match(popup.document.getElementById('modeMessage').textContent, /ativado/);
+  assert.match(popup.document.getElementById('modeHint').textContent, /2 canais inscritos/);
+
+  const selected = popup.document.getElementById('channelSourceSelected');
+  selected.checked = true;
+  await selected.dispatchEvent('change');
+  assert.equal(backend.state.channelMode, 'selected');
+  assert.equal(popup.document.getElementById('selectedChannelsPanel').hidden, false);
+  assert.match(popup.document.getElementById('modeHint').textContent, /Nenhum canal selecionado/);
+
+  const input = popup.document.getElementById('selectedInput');
+  input.value = 'tech';
+  await input.dispatchEvent('input');
+  const suggestions = popup.document.getElementById('selectedSuggestions');
+  assert.equal(suggestions.hidden, false);
+  assert.equal(suggestions.children.length, 1);
+  await suggestions.children[0].dispatchEvent('click');
+
+  assert.deepEqual(backend.state.selectedChannels, [{ name: 'Tech Brasil', handle: '@TechBR' }]);
+  assert.equal(popup.document.getElementById('selectedCount').textContent, '1');
+  assert.match(popup.document.getElementById('modeHint').textContent, /1 canal selecionado/);
+
+  const badges = popup.document.getElementById('selectedBadges');
+  await badges.children[0].children[2].dispatchEvent('click');
+  assert.deepEqual(backend.state.selectedChannels, [], 'the x removes the selected channel');
+  assert.equal(popup.document.getElementById('selectedEmpty').hidden, false);
+});
+
 test('blocked URLs can be added and removed from the popup', async () => {
   const popup = mountPopup();
   await popup.document.dispatchEvent('DOMContentLoaded');
@@ -417,9 +469,11 @@ function createBackend() {
     hideOldVideos: true,
     hideGamesAndAds: true,
     maxAgeHours: 72,
+    channelMode: 'off',
     blockKeywords: false,
     blockedKeywords: null,
     blockedChannels: null,
+    selectedChannels: null,
     allowedChannels: null,
   };
   const localState = { channelCatalog: null };
@@ -584,9 +638,11 @@ function createBackend() {
         hideOldVideos: true,
         hideGamesAndAds: true,
         maxAgeHours: 72,
+        channelMode: 'off',
         blockKeywords: false,
         blockedKeywords: null,
         blockedChannels: null,
+        selectedChannels: null,
         allowedChannels: null,
       });
       localState.channelCatalog = null;

@@ -212,6 +212,47 @@
     .allowed-badge { gap: 6px; padding: 3px 5px 3px 4px; }
     .allowed-avatar, .allowed-avatar-fallback { width: 18px; height: 18px; font-size: 9px; }
     .allowed-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .mode-source { margin-top: 4px; padding: 11px 0 0; border-top: 1px solid #f0f2f6; }
+    .mode-source[disabled] { opacity: .55; }
+    .mode-legend { margin: 0 0 8px; color: #6c7890; font-size: 10px; line-height: 1.5; }
+    .vertical-switch { display: grid; gap: 7px; }
+    .vertical-option {
+      position: relative;
+      display: flex;
+      align-items: flex-start;
+      gap: 9px;
+      padding: 9px 10px;
+      border: 1px solid #e3e8f2;
+      border-radius: 11px;
+      background: #fbfcfe;
+      cursor: pointer;
+      transition: border-color .15s ease, background .15s ease, box-shadow .15s ease;
+    }
+    .vertical-option:has(.vertical-control:checked) {
+      border-color: #8491f2;
+      background: #f5f7ff;
+      box-shadow: 0 0 0 3px rgb(76 95 227 / 10%);
+    }
+    .vertical-control { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); clip-path: inset(50%); white-space: nowrap; }
+    .vertical-control:focus-visible + .vertical-arrow { outline: 3px solid rgb(76 95 227 / 28%); outline-offset: 2px; }
+    .vertical-arrow {
+      display: grid;
+      width: 23px;
+      height: 23px;
+      flex: 0 0 auto;
+      place-items: center;
+      border-radius: 7px;
+      background: #eef1ff;
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: 750;
+      transition: background .15s ease, color .15s ease;
+    }
+    .vertical-control:checked + .vertical-arrow { background: var(--accent); color: #fff; }
+    .vertical-copy { display: grid; min-width: 0; gap: 1px; }
+    .vertical-title { color: #303d54; font-size: 11px; font-weight: 700; }
+    .vertical-description { color: var(--muted); font-size: 10px; line-height: 1.4; }
+    .mode-selected { margin-top: 12px; padding-top: 12px; border-top: 1px solid #f0f2f6; }
     .footer-note { margin: 2px 4px 0; color: #8390a4; font-size: 9px; text-align: center; }
     /* O mesmo documento vira o painel lateral: largura da área, sem o teto do popup. */
     body.sidepanel-surface { width: 100%; min-width: 0; max-height: none; min-height: 100vh; }
@@ -311,9 +352,72 @@
         <p id="filterMessage" class="message" role="status" aria-live="polite" hidden></p>
       </section>
 
-      <section class="panel" aria-labelledby="keywords-title">
+      <section class="panel" aria-labelledby="channel-mode-title">
         <div class="section-head">
           <span class="section-index" aria-hidden="true">03</span>
+          <div>
+            <h2 id="channel-mode-title">Modo só inscrições</h2>
+            <p class="section-description">Mostra só os canais que você escolher.</p>
+          </div>
+        </div>
+
+        <label class="setting-row" for="channelMode">
+          <span class="setting-copy">
+            <span class="setting-title">Ativar modo só inscrições</span>
+            <span class="setting-description">Restringe o feed aos canais da fonte escolhida. A idade e as palavras-chave continuam valendo; jogos e anúncios somem.</span>
+          </span>
+          <input class="setting-control" type="checkbox" id="channelMode" disabled>
+          <span class="switch-indicator" aria-hidden="true"></span>
+        </label>
+
+        <fieldset class="mode-source" id="channelModeSourceField" disabled>
+          <legend class="field-label">Fonte dos canais</legend>
+          <p class="mode-legend"><strong>↑</strong> só os canais selecionados · <strong>↓</strong> todos os canais inscritos</p>
+          <div class="vertical-switch" role="radiogroup" aria-label="Fonte dos canais">
+            <label class="vertical-option">
+              <input class="vertical-control" type="radio" name="channelModeSource" id="channelSourceSelected" value="selected" disabled>
+              <span class="vertical-arrow" aria-hidden="true">↑</span>
+              <span class="vertical-copy">
+                <span class="vertical-title">Selecionados</span>
+                <span class="vertical-description">Só os canais da lista abaixo.</span>
+              </span>
+            </label>
+            <label class="vertical-option">
+              <input class="vertical-control" type="radio" name="channelModeSource" id="channelSourceSubscribed" value="subscribed" disabled>
+              <span class="vertical-arrow" aria-hidden="true">↓</span>
+              <span class="vertical-copy">
+                <span class="vertical-title">Inscrições</span>
+                <span class="vertical-description">Todos os canais em que você está inscrito.</span>
+              </span>
+            </label>
+          </div>
+        </fieldset>
+
+        <div class="mode-selected" id="selectedChannelsPanel" hidden>
+          <form id="selectedForm" novalidate>
+            <label class="field-label" for="selectedInput">Canais que podem aparecer</label>
+            <div class="entry-row">
+              <input type="text" id="selectedInput" name="selected" placeholder="Digite o nome do canal" autocomplete="off" spellcheck="false">
+              <button class="primary-button" id="addSelected" type="submit" aria-label="Adicionar canal aos selecionados"><span class="plus" aria-hidden="true">+</span>Adicionar</button>
+            </div>
+            <p class="field-hint">Digite o nome e escolha a sugestão. Enter adiciona a primeira.</p>
+          </form>
+
+          <div id="selectedSuggestions" class="suggestion-list" hidden></div>
+          <div class="list-caption"><span>Canais selecionados</span><span id="selectedCount" class="count-badge">0</span></div>
+          <div id="selectedBadges" class="badge-list"></div>
+          <p id="selectedEmpty" class="badge-empty">Nenhum canal selecionado.</p>
+        </div>
+
+        <p id="modeHint" class="field-hint"></p>
+        <button class="link-button" id="openChannelsPageFromMode" type="button">Abrir youtube.com/feed/channels</button>
+        <p class="scope-note">Com o modo ativo, só os canais da fonte aparecem. A idade máxima e o bloqueio por palavras-chave/canais continuam valendo; a lista de Sempre recomendados não se aplica. Shorts seguem como antes.</p>
+        <p id="modeMessage" class="message" role="status" aria-live="polite" hidden></p>
+      </section>
+
+      <section class="panel" aria-labelledby="keywords-title">
+        <div class="section-head">
+          <span class="section-index" aria-hidden="true">04</span>
           <div>
             <h2 id="keywords-title">Palavras-chave e canais</h2>
             <p class="section-description">Oculta vídeos cujo título ou canal combine com as listas.</p>
@@ -362,7 +466,7 @@
 
       <section class="panel" aria-labelledby="allowed-title">
         <div class="section-head">
-          <span class="section-index" aria-hidden="true">04</span>
+          <span class="section-index" aria-hidden="true">05</span>
           <div>
             <h2 id="allowed-title">Sempre recomendados</h2>
             <p class="section-description">Canais que nunca são filtrados, nem por palavra-chave nem pela idade.</p>

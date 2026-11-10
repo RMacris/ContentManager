@@ -19,6 +19,7 @@ test('the contract owns the settings defaults, keys and limits', () => {
     hideOldVideos: true,
     hideGamesAndAds: true,
     maxAgeHours: 72,
+    channelMode: 'off',
     blockKeywords: false,
   });
   assert.deepEqual(contract.LIMITS, {
@@ -26,17 +27,22 @@ test('the contract owns the settings defaults, keys and limits', () => {
     maxListItems: 100,
     maxItemLength: 60,
     maxAllowedChannels: 50,
+    maxSelectedChannels: 50,
   });
   assert.deepEqual([...contract.SETTING_KEYS], [
     'hideOldVideos',
     'hideGamesAndAds',
     'maxAgeHours',
+    'channelMode',
     'blockKeywords',
     'blockedKeywords',
     'blockedChannels',
+    'selectedChannels',
     'allowedChannels',
   ]);
   assert.equal(contract.isKnownKey('maxAgeHours'), true);
+  assert.equal(contract.isKnownKey('channelMode'), true);
+  assert.equal(contract.isKnownKey('selectedChannels'), true);
   assert.equal(contract.isKnownKey('blockedChannels'), true);
   assert.equal(contract.isKnownKey('maxAgeDays'), false, 'the old day key is read-only');
   assert.equal(contract.isKnownKey('unknown'), false);
@@ -60,9 +66,11 @@ test('the contract normalizes a full settings state', () => {
     hideOldVideos: true,
     hideGamesAndAds: true,
     maxAgeHours: 72,
+    channelMode: 'off',
     blockKeywords: false,
     blockedKeywords: [],
     blockedChannels: [],
+    selectedChannels: [],
     allowedChannels: [],
   });
 
@@ -71,21 +79,42 @@ test('the contract normalizes a full settings state', () => {
       hideOldVideos: false,
       hideGamesAndAds: 0,
       maxAgeHours: 99999,
+      channelMode: 'selected',
       blockKeywords: 'yes',
       blockedKeywords: ['GPT-4', 'gpt 4'],
       blockedChannels: ['Rick'],
+      selectedChannels: [{ name: 'Tech Brasil', handle: '@TechBR' }],
       allowedChannels: [{ name: 'Tech Brasil', handle: '@TechBR' }],
     }),
     {
       hideOldVideos: false,
       hideGamesAndAds: true,
       maxAgeHours: 72,
+      channelMode: 'selected',
       blockKeywords: false,
       blockedKeywords: ['GPT-4'],
       blockedChannels: ['Rick'],
+      selectedChannels: [{ name: 'Tech Brasil', handle: '@TechBR' }],
       allowedChannels: [{ name: 'Tech Brasil', handle: '@TechBR' }],
     },
   );
+
+  assert.equal(
+    contract.normalizeSettings({ channelMode: 'subscribed' }).channelMode,
+    'subscribed',
+  );
+  assert.equal(contract.normalizeSettings({ channelMode: 'closed' }).channelMode, 'off');
+});
+
+test('the contract validates the channel mode', () => {
+  assert.deepEqual([...contract.CHANNEL_MODES], ['off', 'selected', 'subscribed']);
+  for (const valid of contract.CHANNEL_MODES) {
+    assert.equal(contract.isValidChannelMode(valid), true);
+  }
+  for (const invalid of ['', 'on', 'all', null, 1]) {
+    assert.equal(contract.isValidChannelMode(invalid), false, `${String(invalid)} is not a mode`);
+  }
+  assert.equal(contract.normalizeChannelMode('closed'), 'off');
 });
 
 test('the contract reads the old day setting as a migration fallback', () => {
@@ -157,6 +186,42 @@ test('the contract normalizes and caps the allowed channel list', () => {
   assert.throws(
     () =>
       contract.normalizeAllowedForSave(
+        Array.from({ length: 51 }, (_, index) => ({ name: `canal ${index}` })),
+      ),
+    /50 canais/,
+  );
+});
+
+test('the contract normalizes and caps the selected channel list', () => {
+  assert.equal(contract.normalizeSelectedList(undefined), null);
+  assert.deepEqual(
+    contract.normalizeSelectedList([
+      { name: ' Tech Brasil ', handle: '@TechBR' },
+      { name: 'tech brasil', handle: '@techbr' },
+    ]),
+    [{ name: 'Tech Brasil', handle: '@TechBR' }],
+  );
+  assert.deepEqual(
+    contract.normalizeSelectedForSave([
+      { name: ' Tech Brasil ', handle: ' @TechBR ' },
+      { name: 'tech brasil', handle: '@techbr' },
+    ]),
+    [{ name: 'Tech Brasil', handle: '@TechBR' }],
+  );
+  assert.equal(
+    contract.normalizeSelectedForSave(
+      Array.from({ length: 50 }, (_, index) => ({ name: `canal ${index}` })),
+    ).length,
+    50,
+    'the last selected channel still fits',
+  );
+
+  assert.throws(() => contract.normalizeSelectedForSave('Tech'), /lista/);
+  assert.throws(() => contract.normalizeSelectedForSave([{ handle: '@canal' }]), /nome/);
+  assert.throws(() => contract.normalizeSelectedForSave([{ name: 'x'.repeat(61) }]), /60 caracteres/);
+  assert.throws(
+    () =>
+      contract.normalizeSelectedForSave(
         Array.from({ length: 51 }, (_, index) => ({ name: `canal ${index}` })),
       ),
     /50 canais/,

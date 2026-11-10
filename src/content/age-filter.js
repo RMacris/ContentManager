@@ -92,20 +92,24 @@
   let hidingAged = false;
   let hidingPromoted = false;
   let blockingKeywords = false;
+  let channelMode = settingsContract.DEFAULT_SETTINGS.channelMode;
   let blockedKeywords = [];
   let blockedChannels = [];
+  let selectedChannels = [];
+  let subscribedChannels = [];
   let allowedChannels = [];
   let maxAgeHours = settingsContract.DEFAULT_SETTINGS.maxAgeHours;
   let started = false;
   let runtime = null;
   let cache = new WeakMap();
   let keywordCache = new WeakMap();
+  let channelCache = new WeakMap();
 
   /* --------------------------------------------------------------- preferência */
 
   /** Algum filtro ligado? Desligados todos, a página fica como o YouTube fez. */
   function isActive() {
-    return hidingAged || hidingPromoted || blockingKeywords;
+    return channelMode !== 'off' || hidingAged || hidingPromoted || blockingKeywords;
   }
 
   /**
@@ -117,11 +121,15 @@
     hidingPromoted = settings.hideGamesAndAds;
     maxAgeHours = settings.maxAgeHours;
     blockingKeywords = settings.blockKeywords;
+    channelMode = settings.channelMode;
     blockedKeywords = settings.blockedKeywords;
     blockedChannels = settings.blockedChannels;
+    selectedChannels = settings.selectedChannels;
+    subscribedChannels = settings.subscribedChannels ?? [];
     allowedChannels = settings.allowedChannels;
     cache = new WeakMap();
     keywordCache = new WeakMap();
+    channelCache = new WeakMap();
     if (isActive()) scheduleScan();
     else unhideAll();
   }
@@ -250,8 +258,85 @@
     return false;
   }
 
+  /** O card está acima da idade máxima? A leitura fica em cache por assinatura. */
+  function isOldCard(read, card) {
+    const texts = read.metadataTexts;
+    if (texts.length === 0) return false;
+
+    // A assinatura evita reparsear em cada varredura; muda quando o card muda
+    // de idade ou é reciclado pelo YouTube.
+    const signature = texts.join('\u0001');
+    const cached = cache.get(card);
+    if (cached !== undefined && cached.signature === signature) return cached.old;
+
+    let old = false;
+    for (let i = 0; i < texts.length; i += 1) {
+      if (core.shouldHide(texts[i], maxAgeHours)) {
+        old = true;
+        break;
+      }
+    }
+    cache.set(card, { signature, old });
+    return old;
+  }
+
+  /** O card tem algum canal na lista (selecionados ou inscrições)? */
+  function matchesChannelList(channels, source, card) {
+    let signature = '';
+    for (let i = 0; i < channels.length; i += 1) {
+      signature += channels[i].name + '\u0001' + channels[i].handle + '\u0002';
+    }
+    const cached = channelCache.get(card);
+    if (cached !== undefined && cached.signature === signature) return cached.matches;
+
+    let matches = false;
+    for (let i = 0; i < channels.length && !matches; i += 1) {
+      matches = channelRules.isAllowedChannel(channels[i].name, channels[i].handle, source);
+    }
+    channelCache.set(card, { signature, matches });
+    return matches;
+  }
+
+  /**
+   * O modo só inscrições restringe o card ao canal da fonte escolhida. Os
+   * filtros de palavra-chave e de idade continuam valendo por cima; a
+   * allowlist de Sempre recomendados não se aplica, porque neste modo a fonte
+   * é a última palavra. Anúncio e jogo não têm canal e somem; Shorts seguem
+   * fora do filtro, como no comportamento normal.
+   */
+  function evaluateChannelMode(read, card) {
+    if (read.promoted) {
+      hide(card);
+      return;
+    }
+    if (read.shorts) {
+      show(card);
+      return;
+    }
+
+    const source = channelMode === 'selected' ? selectedChannels : subscribedChannels;
+    const channels = read.channels;
+    if (source.length > 0 && (channels.length === 0 || !matchesChannelList(channels, source, card))) {
+      hide(card);
+      return;
+    }
+
+    if (blockingKeywords && isKeywordBlocked(read, card)) {
+      hide(card);
+      return;
+    }
+
+    if (hidingAged && isOldCard(read, card)) hide(card);
+    else show(card);
+  }
+
   function evaluateCard(card) {
     const read = youtubeDom.readCard(card);
+
+    if (channelMode !== 'off') {
+      evaluateChannelMode(read, card);
+      return;
+    }
 
     // Anúncio e jogo somem por inteiro: a data deles não existe no card.
     if (read.promoted) {
@@ -287,27 +372,7 @@
       return;
     }
 
-    const texts = read.metadataTexts;
-    if (texts.length === 0) {
-      show(card);
-      return;
-    }
-
-    // A assinatura evita reparsear em cada varredura; muda quando o card muda
-    // de idade ou é reciclado pelo YouTube.
-    const signature = texts.join('\u0001');
-    if (cache.get(card) === signature) return;
-    cache.set(card, signature);
-
-    let old = false;
-    for (let i = 0; i < texts.length; i += 1) {
-      if (core.shouldHide(texts[i], maxAgeHours)) {
-        old = true;
-        break;
-      }
-    }
-
-    if (old) hide(card);
+    if (isOldCard(read, card)) hide(card);
     else show(card);
   }
 
@@ -355,6 +420,7 @@
     }
     cache = new WeakMap();
     keywordCache = new WeakMap();
+    channelCache = new WeakMap();
   }
 
   /* ---------------------------------------------------------------------- start */

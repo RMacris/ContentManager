@@ -6,9 +6,11 @@ const storage = {
   hideOldVideos: true,
   hideGamesAndAds: true,
   maxAgeHours: 72,
+  channelMode: 'off',
   blockKeywords: false,
   blockedKeywords: null,
   blockedChannels: null,
+  selectedChannels: null,
   allowedChannels: null,
 };
 const localStorage = { channelCatalog: null };
@@ -102,9 +104,11 @@ beforeEach(() => {
   storage.hideGamesAndAds = true;
   storage.maxAgeHours = 72;
   delete storage.maxAgeDays;
+  storage.channelMode = 'off';
   storage.blockKeywords = false;
   storage.blockedKeywords = null;
   storage.blockedChannels = null;
+  storage.selectedChannels = null;
   storage.allowedChannels = null;
   localStorage.channelCatalog = null;
   dynamicRules = [];
@@ -157,12 +161,36 @@ test('settings persist an independent toggle and a custom recommendation age', a
     hideOldVideos: false,
     hideGamesAndAds: true,
     maxAgeHours: 336,
+    channelMode: 'off',
     blockKeywords: false,
     blockedKeywords: ['ia'],
     blockedChannels: [],
+    selectedChannels: [],
     allowedChannels: [],
   });
   assert.deepEqual(await getSettings(), saved);
+});
+
+test('the channel mode and the selected channel list persist', async () => {
+  const saved = await saveSettings({
+    channelMode: 'selected',
+    selectedChannels: [
+      { name: 'Tech Brasil', handle: '@TechBR' },
+      { name: 'tech brasil', handle: '@techbr' },
+      { name: 'Cozinha' },
+    ],
+  });
+
+  assert.equal(saved.channelMode, 'selected');
+  assert.deepEqual(saved.selectedChannels, [
+    { name: 'Tech Brasil', handle: '@TechBR' },
+    { name: 'Cozinha', handle: '' },
+  ]);
+  assert.deepEqual((await getSettings()).selectedChannels, saved.selectedChannels);
+  assert.equal(storage.channelMode, 'selected');
+
+  await assert.rejects(saveSettings({ channelMode: 'closed' }), /modo de canais/);
+  assert.equal(storage.channelMode, 'selected', 'a rejected mode is not saved');
 });
 
 test('the first read migrates the old day setting to hours once', async () => {
@@ -300,6 +328,7 @@ test('the service worker takes defaults and limits from the shared contract', ()
     hideOldVideos: true,
     hideGamesAndAds: true,
     maxAgeHours: 72,
+    channelMode: 'off',
     blockKeywords: false,
   });
   assert.deepEqual(LIMITS, {
@@ -307,6 +336,7 @@ test('the service worker takes defaults and limits from the shared contract', ()
     maxListItems: 100,
     maxItemLength: 60,
     maxAllowedChannels: 50,
+    maxSelectedChannels: 50,
   });
 });
 

@@ -17,10 +17,13 @@
 
   const HOURS_PER_DAY = 24;
 
+  const CHANNEL_MODES = Object.freeze(['off', 'selected', 'subscribed']);
+
   const DEFAULT_SETTINGS = Object.freeze({
     hideOldVideos: true,
     hideGamesAndAds: true,
     maxAgeHours: 72,
+    channelMode: 'off',
     blockKeywords: false,
   });
 
@@ -30,6 +33,7 @@
     maxListItems: 100,
     maxItemLength: 60,
     maxAllowedChannels: 50,
+    maxSelectedChannels: 50,
   });
 
   /** A chave antiga, em dias: só é lida para migrar o que já estava gravado. */
@@ -37,10 +41,12 @@
   const LEGACY_MAX_AGE_DAYS = Object.freeze({ min: 1, max: 365 });
 
   const LIST_KEYS = Object.freeze(['blockedKeywords', 'blockedChannels']);
+  const SELECTED_LIST_KEY = 'selectedChannels';
   const ALLOWED_LIST_KEY = 'allowedChannels';
   const SETTING_KEYS = Object.freeze([
     ...Object.keys(DEFAULT_SETTINGS),
     ...LIST_KEYS,
+    SELECTED_LIST_KEY,
     ALLOWED_LIST_KEY,
   ]);
 
@@ -84,6 +90,14 @@
     return DEFAULT_SETTINGS.maxAgeHours;
   }
 
+  function isValidChannelMode(value) {
+    return typeof value === 'string' && CHANNEL_MODES.includes(value);
+  }
+
+  function normalizeChannelMode(value) {
+    return isValidChannelMode(value) ? value : DEFAULT_SETTINGS.channelMode;
+  }
+
   /** `null` quando a lista nunca foi gravada; senão, a lista limpa e sem repetidos. */
   function normalizeList(value) {
     if (value === null || value === undefined) return null;
@@ -93,6 +107,12 @@
 
   /** `null` quando a allowlist nunca foi gravada; senão, nome e handle limpos. */
   function normalizeAllowedList(value) {
+    if (!Array.isArray(value)) return null;
+    return channelRules().normalizeAllowed(value);
+  }
+
+  /** `null` quando a lista de canais do modo nunca foi gravada. */
+  function normalizeSelectedList(value) {
     if (!Array.isArray(value)) return null;
     return channelRules().normalizeAllowed(value);
   }
@@ -107,9 +127,11 @@
       hideOldVideos: saved.hideOldVideos !== false,
       hideGamesAndAds: saved.hideGamesAndAds !== false,
       maxAgeHours: normalizeMaxAgeHours(saved.maxAgeHours, saved[LEGACY_AGE_KEY]),
+      channelMode: normalizeChannelMode(saved.channelMode),
       blockKeywords: saved.blockKeywords === true,
       blockedKeywords: normalizeList(saved.blockedKeywords) ?? [],
       blockedChannels: normalizeList(saved.blockedChannels) ?? [],
+      selectedChannels: normalizeSelectedList(saved[SELECTED_LIST_KEY]) ?? [],
       allowedChannels: normalizeAllowedList(saved.allowedChannels) ?? [],
     };
   }
@@ -140,10 +162,14 @@
     return unique;
   }
 
-  /** A allowlist do popup: nome + handle, sem repetidos e dentro do limite. */
-  function normalizeAllowedForSave(value) {
+  /**
+   * Uma lista de canais do popup: nome + handle, sem repetidos e dentro do
+   * limite. A allowlist e os canais selecionados usam o mesmo formato; mudam
+   * só o teto e o nome que aparece na mensagem.
+   */
+  function normalizeChannelEntriesForSave(value, limit, listLabel) {
     if (!Array.isArray(value)) {
-      throw new TypeError('A lista de sempre recomendados precisa ser enviada como uma lista.');
+      throw new TypeError(`A lista ${listLabel} precisa ser enviada como uma lista.`);
     }
 
     const cleaned = [];
@@ -170,12 +196,26 @@
     }
 
     const unique = channelRules().normalizeAllowed(cleaned);
-    if (unique.length > LIMITS.maxAllowedChannels) {
-      throw new RangeError(
-        `A lista de sempre recomendados comporta até ${LIMITS.maxAllowedChannels} canais.`,
-      );
+    if (unique.length > limit) {
+      throw new RangeError(`A lista ${listLabel} comporta até ${limit} canais.`);
     }
     return unique;
+  }
+
+  function normalizeAllowedForSave(value) {
+    return normalizeChannelEntriesForSave(
+      value,
+      LIMITS.maxAllowedChannels,
+      'de sempre recomendados',
+    );
+  }
+
+  function normalizeSelectedForSave(value) {
+    return normalizeChannelEntriesForSave(
+      value,
+      LIMITS.maxSelectedChannels,
+      'de canais selecionados',
+    );
   }
 
   root.YTISettingsContract = Object.freeze({
@@ -183,16 +223,22 @@
     LIMITS,
     HOURS_PER_DAY,
     LEGACY_AGE_KEY,
+    CHANNEL_MODES,
     LIST_KEYS,
+    SELECTED_LIST_KEY,
     ALLOWED_LIST_KEY,
     SETTING_KEYS,
     isKnownKey,
     isValidMaxAgeHours,
     normalizeMaxAgeHours,
+    isValidChannelMode,
+    normalizeChannelMode,
     normalizeSettings,
     normalizeList,
     normalizeAllowedList,
+    normalizeSelectedList,
     normalizeListForSave,
     normalizeAllowedForSave,
+    normalizeSelectedForSave,
   });
 })(typeof globalThis !== 'undefined' ? globalThis : this);

@@ -94,6 +94,7 @@ export async function getSettings() {
     [contract.LEGACY_AGE_KEY]: null,
     blockedKeywords: null,
     blockedChannels: null,
+    selectedChannels: null,
     allowedChannels: null,
   });
   const settings = contract.normalizeSettings(saved);
@@ -135,10 +136,23 @@ export async function saveSettings(patch) {
     validated.maxAgeHours = maxAgeHours;
   }
 
+  if (Object.prototype.hasOwnProperty.call(patch, 'channelMode')) {
+    if (!contract.isValidChannelMode(patch.channelMode)) {
+      throw new RangeError('O modo de canais deve ser "off", "selected" ou "subscribed".');
+    }
+    validated.channelMode = patch.channelMode;
+  }
+
   for (const key of LIST_KEYS) {
     if (Object.prototype.hasOwnProperty.call(patch, key)) {
       validated[key] = contract.normalizeListForSave(patch[key]);
     }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(patch, contract.SELECTED_LIST_KEY)) {
+    validated[contract.SELECTED_LIST_KEY] = contract.normalizeSelectedForSave(
+      patch[contract.SELECTED_LIST_KEY],
+    );
   }
 
   if (Object.prototype.hasOwnProperty.call(patch, ALLOWED_LIST_KEY)) {

@@ -97,6 +97,209 @@ test('the YouTube filter applies the saved age limit and reacts to changes', () 
   assert.equal(olderCard.style.display, '');
 });
 
+test('the subscription-only mode keeps recency and keyword filters on top of the channel restriction', () => {
+  const subscribedRecent = createKeywordCard({
+    title: 'Novidade da semana',
+    channel: 'Tech Brasil',
+    handle: '@TechBR',
+    ageText: 'há 6 horas',
+  });
+  const subscribedOld = createKeywordCard({
+    title: 'Vídeo antigo',
+    channel: 'Tech Brasil',
+    handle: '@TechBR',
+    ageText: 'há 8 dias',
+  });
+  const subscribedKeyword = createKeywordCard({
+    title: 'ChatGPT avançado',
+    channel: 'Tech Brasil',
+    handle: '@TechBR',
+    ageText: 'há 1 dia',
+  });
+  const otherRecent = createKeywordCard({
+    title: 'Outro canal',
+    channel: 'Canal Ruim',
+    handle: '@ruim',
+    ageText: 'há 1 hora',
+  });
+  const promoted = createKeywordCard({
+    title: 'Anúncio',
+    channel: 'Outro canal',
+    promoted: true,
+  });
+  const shorts = createKeywordCard({
+    title: 'Shorts',
+    channel: 'Outro canal',
+    shorts: true,
+  });
+  const selectedOnly = createKeywordCard({
+    title: 'Receita de bolo',
+    channel: 'Cozinha da Vovó',
+    handle: '@vovo',
+    ageText: 'há 2 horas',
+  });
+  const cards = [subscribedRecent, subscribedOld, subscribedKeyword, otherRecent, promoted, shorts, selectedOnly];
+
+  const run = runChannelModeScenario({
+    settings: {
+      hideOldVideos: true,
+      hideGamesAndAds: false,
+      maxAgeHours: 72,
+      channelMode: 'subscribed',
+      blockKeywords: true,
+      blockedKeywords: ['chatgpt'],
+      blockedChannels: [],
+      selectedChannels: [{ name: 'Cozinha da Vovó', handle: '@vovo' }],
+      allowedChannels: [{ name: 'Canal Ruim', handle: '@ruim' }],
+    },
+    catalog: [
+      { name: 'Tech Brasil', handle: '@TechBR' },
+      { name: 'Cozinha da Vovó', handle: '@vovo' },
+    ],
+    cards,
+  });
+  flushTimers(run.timers);
+
+  assert.equal(subscribedRecent.style.display, '', 'a recent subscribed channel stays');
+  assert.equal(subscribedOld.style.display, 'none', 'recency still applies inside the mode');
+  assert.equal(subscribedKeyword.style.display, 'none', 'keywords still apply inside the mode');
+  assert.equal(otherRecent.style.display, 'none', 'a channel outside the subscriptions is hidden');
+  assert.equal(promoted.style.display, 'none', 'promoted cards have no channel and are hidden');
+  assert.equal(shorts.style.display, '', 'Shorts stay outside the mode, as before');
+  assert.equal(selectedOnly.style.display, '', 'the subscribed source ignores the selected list');
+
+  run.change({ channelMode: { newValue: 'selected' } });
+  flushTimers(run.timers);
+  assert.equal(subscribedRecent.style.display, 'none', 'a subscribed channel outside the selected list is hidden');
+  assert.equal(selectedOnly.style.display, '', 'the selected channel stays');
+  assert.equal(otherRecent.style.display, 'none', 'the allowlist does not bypass the mode');
+
+  run.change({ selectedChannels: { newValue: [] } });
+  flushTimers(run.timers);
+  assert.equal(otherRecent.style.display, '', 'an empty source fails open instead of blanking the feed');
+  assert.equal(subscribedKeyword.style.display, 'none', 'keywords still apply with an empty source');
+
+  run.change({ channelMode: { newValue: 'off' } });
+  flushTimers(run.timers);
+  assert.equal(otherRecent.style.display, '', 'turning the mode off restores the normal filter');
+  assert.equal(subscribedOld.style.display, 'none', 'the normal age filter still hides the old card');
+  assert.equal(promoted.style.display, '', 'the games/ads switch was off, so the promo returns');
+});
+
+test('the subscription-only mode follows the catalog as it is collected', () => {
+  const subscribed = createKeywordCard({
+    title: 'Novidade',
+    channel: 'Tech Brasil',
+    handle: '@TechBR',
+    ageText: 'há 2 horas',
+  });
+  const other = createKeywordCard({
+    title: 'Outro canal',
+    channel: 'Canal Ruim',
+    handle: '@ruim',
+    ageText: 'há 2 horas',
+  });
+
+  const run = runChannelModeScenario({
+    settings: {
+      hideOldVideos: true,
+      hideGamesAndAds: false,
+      maxAgeHours: 72,
+      channelMode: 'subscribed',
+      blockKeywords: false,
+      blockedKeywords: [],
+      blockedChannels: [],
+      selectedChannels: [],
+      allowedChannels: [],
+    },
+    catalog: [],
+    cards: [subscribed, other],
+  });
+  flushTimers(run.timers);
+  assert.equal(subscribed.style.display, '', 'without a catalog the mode fails open');
+  assert.equal(other.style.display, '', 'without a catalog the mode fails open');
+
+  run.change(
+    { channelCatalog: { newValue: { channels: [{ name: 'Tech Brasil', handle: '@TechBR' }] } } },
+    'local',
+  );
+  flushTimers(run.timers);
+  assert.equal(subscribed.style.display, '', 'the collected subscribed channel stays');
+  assert.equal(other.style.display, 'none', 'the newly known non-subscribed channel is hidden');
+});
+
+function runChannelModeScenario({ settings, catalog = [], cards }) {
+  const timers = [];
+  const storageListeners = [];
+
+  const document = {
+    documentElement: {},
+    visibilityState: 'visible',
+    addEventListener() {},
+    querySelectorAll(selector) {
+      if (selector.includes('data-yti-old')) return cards.filter((card) => card.getAttribute('data-yti-old') === '1');
+      if (selector === 'ytd-rich-shelf-renderer') return [];
+      return cards;
+    },
+    createTreeWalker(node) {
+      let index = 0;
+      return {
+        nextNode() {
+          if (index >= node.textParts.length) return null;
+          return { data: node.textParts[index++] };
+        },
+      };
+    },
+  };
+
+  const chrome = {
+    runtime: { lastError: null, id: 'extension-id' },
+    storage: {
+      sync: {
+        get(defaults, callback) {
+          callback({ ...defaults, ...settings });
+        },
+      },
+      local: {
+        get(defaults, callback) {
+          callback({ ...defaults, channelCatalog: { channels: catalog } });
+        },
+      },
+      onChanged: {
+        addListener(listener) {
+          storageListeners.push(listener);
+        },
+      },
+    },
+  };
+
+  runInNewContext(
+    `${ageCore}\n${keywordCore}\n${channelRules}\n${settingsContract}\n${youtubeDom}\n${contentRuntime}\n${contentSettings}\n${ageFilter}`,
+    {
+      chrome,
+      document,
+      location: { pathname: '/' },
+      NodeFilter: { SHOW_TEXT: 4 },
+      MutationObserver: class {
+        observe() {}
+        disconnect() {}
+      },
+      setTimeout(callback) {
+        timers.push(callback);
+        return timers.length;
+      },
+      setInterval() {},
+    },
+  );
+
+  return {
+    timers,
+    change(changes, area = 'sync') {
+      storageListeners[0](changes, area);
+    },
+  };
+}
+
 function createVideoCard(ageText) {
   const attributes = new Map();
   const metadata = { textParts: [ageText], querySelectorAll: () => [] };
@@ -331,9 +534,21 @@ test('keyword and channel blocking reuse the age-filter hiding and undo on toggl
   assert.equal(channelCard.style.display, '', 'emptying the channel list restores its cards');
 });
 
-function createKeywordCard({ title, channel, titleHidden = false, handle = '' }) {
+function createKeywordCard({
+  title,
+  channel,
+  titleHidden = false,
+  handle = '',
+  ageText = '',
+  promoted = false,
+  shorts = false,
+}) {
   const attributes = new Map();
   const titleNode = { textParts: [title], querySelectorAll: () => [] };
+  const metadataNode = {
+    textParts: ageText === '' ? [] : [ageText],
+    querySelectorAll: () => [],
+  };
   const channelNode = {
     textParts: [channel],
     querySelectorAll: () => [],
@@ -353,14 +568,20 @@ function createKeywordCard({ title, channel, titleHidden = false, handle = '' })
         if (name === 'display') this.display = '';
       },
     },
-    matches: () => false,
+    matches(selector) {
+      if (promoted && (selector.includes('ad-') || selector.includes('promoted') || selector.includes('mini-game'))) {
+        return true;
+      }
+      if (shorts && selector.includes('shorts')) return true;
+      return false;
+    },
     querySelector(selector) {
       if (selector.includes('/watch?v=')) return {};
       if (selector === '#video-title' && !titleHidden) return titleNode;
       return null;
     },
     querySelectorAll(selector) {
-      if (selector.includes('#metadata-line')) return [{ textParts: [] }];
+      if (selector.includes('#metadata-line')) return [metadataNode];
       if (selector.includes('ytd-channel-name')) return [channelNode];
       return [];
     },

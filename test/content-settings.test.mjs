@@ -20,10 +20,13 @@ const DEFAULTS = {
   hideOldVideos: true,
   hideGamesAndAds: true,
   maxAgeHours: 72,
+  channelMode: 'off',
   blockKeywords: false,
   blockedKeywords: [],
   blockedChannels: [],
+  selectedChannels: [],
   allowedChannels: [],
+  subscribedChannels: [],
 };
 
 /** O feed roda em outro contexto `vm`; compara os dados, não os protótipos. */
@@ -31,9 +34,10 @@ function plain(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
-function createFeed({ stored = {}, deferredRead = false } = {}) {
+function createFeed({ stored = {}, localStored = {}, deferredRead = false } = {}) {
   const listeners = [];
-  let finishRead = null;
+  let finishSync = null;
+  let finishLocal = null;
 
   const chrome = {
     runtime: { id: 'extension-id', lastError: null },
@@ -41,7 +45,14 @@ function createFeed({ stored = {}, deferredRead = false } = {}) {
       sync: {
         get(defaults, callback) {
           const value = { ...defaults, ...stored };
-          if (deferredRead) finishRead = () => callback(value);
+          if (deferredRead) finishSync = () => callback(value);
+          else callback(value);
+        },
+      },
+      local: {
+        get(defaults, callback) {
+          const value = { ...defaults, ...localStored };
+          if (deferredRead) finishLocal = () => callback(value);
           else callback(value);
         },
       },
@@ -62,9 +73,11 @@ function createFeed({ stored = {}, deferredRead = false } = {}) {
     chrome,
     listeners,
     read() {
-      if (finishRead === null) throw new Error('the feed has no pending read');
-      finishRead();
-      finishRead = null;
+      if (finishSync === null || finishLocal === null) throw new Error('the feed has no pending read');
+      finishSync();
+      finishLocal();
+      finishSync = null;
+      finishLocal = null;
     },
     change(changes, area = 'sync') {
       for (const listener of listeners) listener(changes, area);
@@ -85,6 +98,34 @@ test('one read and one listener deliver the normalized settings to every subscri
   assert.equal(second.length, 1, 'a subscriber arriving after the read receives the current state');
   assert.deepEqual(plain(first[0]), DEFAULTS);
   assert.deepEqual(plain(second[0]), DEFAULTS);
+});
+
+test('the feed delivers the subscribed catalog and follows local changes', () => {
+  const run = createFeed({
+    localStored: {
+      channelCatalog: {
+        channels: [
+          { name: 'Tech Brasil', handle: '@TechBR', avatarUrl: 'https://yt3.example/tech.jpg' },
+          { name: 'Cozinha da Vovó', handle: '@vovo', avatarUrl: '' },
+        ],
+      },
+    },
+  });
+  const seen = [];
+  run.feed.subscribe((settings) => seen.push(settings));
+
+  assert.deepEqual(plain(seen.at(-1).subscribedChannels), [
+    { name: 'Tech Brasil', handle: '@TechBR' },
+    { name: 'Cozinha da Vovó', handle: '@vovo' },
+  ]);
+
+  run.change(
+    { channelCatalog: { newValue: { channels: [{ name: 'Novo Canal', handle: '@novo' }] } } },
+    'local',
+  );
+  assert.deepEqual(plain(seen.at(-1).subscribedChannels), [
+    { name: 'Novo Canal', handle: '@novo' },
+  ]);
 });
 
 test('a change that arrives before the read wins over the stale answer', () => {
