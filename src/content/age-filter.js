@@ -17,10 +17,11 @@
  *
  * No filtro normal, Shorts ficam de fora: o bloqueio de URL que já existe
  * continua sendo o dono desse caminho. No modo só inscrições, porém, eles são
- * uma superfície de recomendação como as outras e obedecem à fonte escolhida.
- * Histórico e listas salvas continuam fora nos dois casos: ali a data é uma
- * ação do usuário ("Assistido há…"), não uma recomendação — e esconder o item
- * apagaria a própria lista que ele abriu.
+ * uma superfície de recomendação como as outras — inclusive o feed vertical
+ * de tela cheia (/shorts/<id>) — e obedecem à fonte escolhida. Histórico e
+ * listas salvas continuam fora nos dois casos: ali a data é uma ação do
+ * usuário ("Assistido há…"), não uma recomendação — e esconder o item apagaria
+ * a própria lista que ele abriu.
  *
  * A leitura do DOM — seletores, título, canais, metadados e o card de
  * inscrição — mora em `youtube-dom.js`. Aqui ficam só as regras: classificar o
@@ -327,8 +328,9 @@
   /**
    * O modo só inscrições restringe o card ao canal da fonte escolhida em toda
    * superfície de recomendação — feed, busca, canal, página de vídeo, tela
-   * final do player e prateleiras de Shorts. Os filtros de palavra-chave e de
-   * idade continuam valendo por cima; a allowlist de Sempre recomendados não
+   * final do player, prateleiras de Shorts e o feed vertical de tela cheia.
+   * Os filtros de palavra-chave e de idade continuam valendo por cima; a
+   * allowlist de Sempre recomendados não
    * se aplica, porque neste modo a fonte é a última palavra. Anúncio e jogo
    * não têm canal e somem.
    *

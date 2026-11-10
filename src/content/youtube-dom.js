@@ -2,9 +2,10 @@
  * Leitura do DOM do YouTube.
  *
  * O filtro de idade e o chip de canal enxergam a mesma página: o card de
- * vídeo, o lockup novo, o anúncio, o Shorts, o cabeçalho do canal e o card de
- * inscrição. Este módulo é o único dono dos seletores e da extração; cada
- * consumidor recebe o modelo lido e decide o que fazer com ele.
+ * vídeo, o lockup novo, o anúncio, o Shorts — inclusive o player de tela
+ * cheia —, o cabeçalho do canal e o card de inscrição. Este módulo é o único
+ * dono dos seletores e da extração; cada consumidor recebe o modelo lido e
+ * decide o que fazer com ele.
  *
  *  - `readCard` devolve o card classificado (anúncio, Shorts, vídeo), o
  *    título, os canais e os textos de metadados; o filtro classifica.
@@ -50,12 +51,15 @@
     'ytd-radio-renderer',
     'ytd-movie-renderer',
     'yt-lockup-view-model',
-    // Shorts em prateleira; o player de Shorts não é julgado.
+    // Shorts em prateleira e o feed vertical de tela cheia (/shorts/<id>).
+    // O filtro de idade não julga Shorts, mas o modo só inscrições restringe
+    // o canal do player como qualquer outra recomendação.
     'ytd-reel-item-renderer',
     'ytd-rich-grid-slim-media',
     'ytm-shorts-lockup-view-model',
     'ytm-shorts-lockup-view-model-v2',
     'ytd-shorts-lockup-view-model',
+    'ytd-reel-video-renderer',
     // Tela final e "a seguir" dentro do player da página de vídeo.
     '.ytp-ce-element',
     '.ytp-autonav-endscreen-upnext-container',
@@ -96,13 +100,26 @@
     '.inline-metadata-item',
   ].join(',');
 
-  /** Cards de Shorts: nunca entram no filtro de idade. */
+  /** Cards e player de Shorts: nunca entram no filtro de idade. */
   const SHORTS_SELECTOR = [
     'ytm-shorts-lockup-view-model',
     'ytm-shorts-lockup-view-model-v2',
     'ytd-shorts-lockup-view-model',
     'ytd-reel-item-renderer',
     'ytd-rich-grid-slim-media',
+    'ytd-reel-video-renderer',
+  ].join(',');
+
+  /**
+   * O dono do Short no player de tela cheia: o link do canal no cabeçalho do
+   * reel. O mesmo `ytd-reel-video-renderer` também carrega links de painéis
+   * (descrição, vídeo vinculado), que não são o canal que publicou o Short.
+   */
+  const SHORTS_PLAYER_CHANNEL_SELECTOR = [
+    'a.ytd-reel-player-header-renderer[href]',
+    'ytd-reel-player-header-renderer a[href^="/@"]',
+    'ytd-reel-player-header-renderer a[href*="youtube.com/@"]',
+    'ytd-reel-player-header-renderer a[href*="/channel/"]',
   ].join(',');
 
   /** Onde o card escreve o título do vídeo, do card antigo ao lockup novo. */
@@ -112,6 +129,18 @@
     '.yt-lockup-metadata-view-model__heading',
     'h3',
     'a[title]',
+  ];
+
+  /**
+   * O título do Short no player de tela cheia, no layout novo e no antigo.
+   * Vem antes do título genérico porque o item também pode carregar o card de
+   * um vídeo vinculado, cujo `#video-title` não é o título do Short.
+   */
+  const SHORTS_PLAYER_TITLE_SELECTORS = [
+    'yt-shorts-video-title-view-model h1',
+    'yt-shorts-video-title-view-model h2',
+    '.ytShortsVideoTitleViewModelShortsVideoTitle',
+    '.title.ytd-reel-player-header-renderer',
   ];
 
   /** Onde o card escreve o nome do canal que publicou o vídeo. */
@@ -257,10 +286,10 @@
     return card.querySelector('a[href*="/watch?v="]') !== null;
   }
 
-  /** O título do vídeo: o primeiro seletor que tem texto decide. */
-  function titleText(card) {
-    for (let i = 0; i < TITLE_SELECTORS.length; i += 1) {
-      const node = card.querySelector(TITLE_SELECTORS[i]);
+  /** O primeiro seletor da lista que tem texto decide. */
+  function firstText(card, selectors) {
+    for (let i = 0; i < selectors.length; i += 1) {
+      const node = card.querySelector(selectors[i]);
       if (node === null || node === undefined) continue;
       const text = textWithBreaks(node);
       if (text !== '') return text;
@@ -268,8 +297,29 @@
     return '';
   }
 
+  /** O título do vídeo: no player de Shorts, o do Short vem antes do genérico. */
+  function titleText(card) {
+    if (isShortsPlayerCard(card)) {
+      const playerTitle = firstText(card, SHORTS_PLAYER_TITLE_SELECTORS);
+      if (playerTitle !== '') return playerTitle;
+    }
+    return firstText(card, TITLE_SELECTORS);
+  }
+
+  /** O card é um item do feed vertical de Shorts? */
+  function isShortsPlayerCard(card) {
+    return typeof card.matches === 'function' && card.matches('ytd-reel-video-renderer');
+  }
+
   /** Os nós de canal que o card mostra, sem repetir o mesmo nó. */
   function channelNodes(card) {
+    // No feed vertical de Shorts o item também carrega links de painéis
+    // (descrição, vídeo vinculado); o dono do Short é o link do cabeçalho.
+    if (isShortsPlayerCard(card)) {
+      const playerChannel = card.querySelector(SHORTS_PLAYER_CHANNEL_SELECTOR);
+      if (playerChannel !== null) return [playerChannel];
+    }
+
     const nodes = [];
     for (let i = 0; i < CHANNEL_SELECTORS.length; i += 1) {
       const found = card.querySelectorAll(CHANNEL_SELECTORS[i]);

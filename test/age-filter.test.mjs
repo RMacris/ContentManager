@@ -314,6 +314,78 @@ test('the mode reaches the recommendation surfaces of a watch page in both sourc
   assert.equal(endScreen.style.display, 'none');
 });
 
+test('the mode reaches the full-screen Shorts feed in both sources', () => {
+  const subscribedPlayer = createKeywordCard({
+    title: 'Short da vovó',
+    channel: 'Cozinha da Vovó',
+    handle: '@vovo',
+    ageText: 'há 1 hora',
+    player: true,
+  });
+  const otherPlayer = createKeywordCard({
+    title: 'Short de outro canal',
+    channel: 'Canal Ruim',
+    handle: '@ruim',
+    ageText: 'há 1 hora',
+    player: true,
+  });
+  const keywordPlayer = createKeywordCard({
+    title: 'ChatGPT no Short',
+    channel: 'Cozinha da Vovó',
+    handle: '@vovo',
+    ageText: 'há 1 hora',
+    player: true,
+  });
+  const oldPlayer = createKeywordCard({
+    title: 'Short antigo',
+    channel: 'Cozinha da Vovó',
+    handle: '@vovo',
+    ageText: 'há 8 dias',
+    player: true,
+  });
+
+  const run = runChannelModeScenario({
+    pathname: '/shorts/abc',
+    settings: {
+      hideOldVideos: true,
+      hideGamesAndAds: false,
+      maxAgeHours: 72,
+      channelMode: 'subscribed',
+      blockKeywords: true,
+      blockedKeywords: ['chatgpt'],
+      blockedChannels: [],
+      selectedChannels: [{ name: 'Cozinha da Vovó', handle: '@vovo' }],
+      allowedChannels: [],
+    },
+    catalog: [{ name: 'Cozinha da Vovó', handle: '@vovo' }],
+    cards: [subscribedPlayer, otherPlayer, keywordPlayer, oldPlayer],
+  });
+  flushTimers(run.timers);
+
+  assert.equal(subscribedPlayer.style.display, '', 'a Short from a subscribed channel stays in the full-screen feed');
+  assert.equal(otherPlayer.style.display, 'none', 'a Short outside the subscriptions is hidden in the full-screen feed');
+  assert.equal(keywordPlayer.style.display, 'none', 'keywords still apply on the full-screen Shorts feed');
+  assert.equal(oldPlayer.style.display, 'none', 'recency still applies when the player exposes a date');
+
+  run.change({
+    channelMode: { newValue: 'selected' },
+    selectedChannels: { newValue: [{ name: 'Canal Ruim', handle: '@ruim' }] },
+  });
+  flushTimers(run.timers);
+  assert.equal(otherPlayer.style.display, '', 'the selected source applies to the full-screen feed');
+  assert.equal(subscribedPlayer.style.display, 'none');
+
+  run.change({ channelMode: { newValue: 'selected' }, selectedChannels: { newValue: [] } });
+  flushTimers(run.timers);
+  assert.equal(otherPlayer.style.display, 'none', 'an empty selected source blanks the full-screen feed');
+
+  run.change({ channelMode: { newValue: 'off' } });
+  flushTimers(run.timers);
+  assert.equal(otherPlayer.style.display, '', 'the normal filter leaves the Shorts player alone');
+  assert.equal(keywordPlayer.style.display, '', 'the normal keyword filter still leaves Shorts alone');
+  assert.equal(oldPlayer.style.display, '', 'the normal age filter still leaves Shorts alone');
+});
+
 test('the normal age filter reaches the new watch page recommendation cards', () => {
   const oldAutoplay = createKeywordCard({
     title: 'A seguir antigo',
@@ -705,6 +777,7 @@ function createKeywordCard({
   ageText = '',
   promoted = false,
   shorts = false,
+  player = false,
 }) {
   const attributes = new Map();
   const titleNode = { textParts: [title], querySelectorAll: () => [] };
@@ -735,6 +808,7 @@ function createKeywordCard({
       if (promoted && (selector.includes('ad-') || selector.includes('promoted') || selector.includes('mini-game'))) {
         return true;
       }
+      if (player && selector.includes('ytd-reel-video-renderer')) return true;
       if (shorts && selector.includes('shorts')) return true;
       return false;
     },

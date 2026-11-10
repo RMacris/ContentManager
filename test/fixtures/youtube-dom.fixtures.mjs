@@ -243,6 +243,46 @@ export function shortsLinkCard() {
   return card;
 }
 
+/**
+ * Um item do feed vertical de Shorts (/shorts/<id>): o player, o título no
+ * layout novo e o cabeçalho com o canal dono. O painel de descrição traz um
+ * link de outro canal de propósito — ele não é o dono do Short.
+ */
+export function shortsPlayer({
+  title = 'Melhor Short',
+  channel = 'Rick Astley',
+  handle = '@RickAstley',
+  otherChannel = 'Outro Canal',
+  otherHandle = '@outro',
+} = {}) {
+  const reel = element('ytd-reel-video-renderer');
+  reel.append(element('ytd-shorts-player', { id: 'shorts-player' }));
+
+  const titleModel = element('yt-shorts-video-title-view-model');
+  titleModel.append(element('h1', { className: 'ytShortsVideoTitleViewModelShortsVideoTitle', text: title }));
+  reel.append(titleModel);
+
+  const header = element('ytd-reel-player-header-renderer');
+  const channelName = element('ytd-channel-name');
+  const channelLink = element('a', { className: 'ytd-reel-player-header-renderer', attrs: { href: '/' + handle } });
+  channelLink.append(channel);
+  channelName.append(channelLink);
+  header.append(channelName);
+  reel.append(header);
+
+  const panel = element('div', { className: 'description-panel' });
+  const otherLink = element('a', { attrs: { href: '/' + otherHandle } });
+  otherLink.append(otherChannel);
+  panel.append(otherLink);
+  // O vídeo vinculado tem `#video-title`; o título do Short não vem dali.
+  const linkedVideo = element('a', { id: 'video-title', attrs: { href: '/watch?v=linked' } });
+  linkedVideo.append('Vídeo vinculado');
+  panel.append(linkedVideo);
+  reel.append(panel);
+
+  return reel;
+}
+
 /** O cabeçalho da página de canal e um card da página de inscrições. */
 export function channelPage({
   name = 'Rick Astley',

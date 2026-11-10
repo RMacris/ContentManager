@@ -137,8 +137,9 @@ O limite é estrito: o card exatamente no limite fica; o mais velho some.
 Vale onde há recomendação: home, inscrições, resultados de busca, página de canal e a coluna lateral
 do player. Fica fora do que o usuário escolheu ver: histórico, vídeos curtidos, assistir depois,
 biblioteca, playlists e a página do vídeo principal — ali a data costuma ser uma **ação** ("Assistido
-há 2 dias") e esconder o item apagaria a própria lista aberta. **Shorts não são tocados**: o
-bloqueio de URL que já existia continua sendo o dono desse caminho. Card sem data reconhecível, Mix
+há 2 dias") e esconder o item apagaria a própria lista aberta. **Shorts não são tocados pelo filtro
+de idade**: o bloqueio de URL que já existia continua sendo o dono desse caminho — no modo só
+inscrições, eles seguem a fonte escolhida. Card sem data reconhecível, Mix
 (link de playlist), canal, post e transmissão ao vivo ficam visíveis — o filtro falha **aberto**,
 nunca esconde o que não entendeu.
 
@@ -147,8 +148,8 @@ vezes" e "Novidade", o anúncio mostra "Patrocinado". Por isso eles têm interru
 **inteiros**, sem olhar data — o card de playables (`/playables/`) e o anúncio no feed, na busca e
 no slot da coluna lateral. São cards de recomendação como os outros; o que os distingue é não haver
 publicação para julgar. A **prateleira** que ficar sem nenhum card visível também some, para o
-título não ficar solto sobre um vazio — mas só a que teve todos os cards escondidos pelo filtro; a
-de Shorts, que nunca é tocada, continua de pé.
+título não ficar solto sobre um vazio — mas só a que teve todos os cards escondidos pelo filtro; no
+filtro normal, a de Shorts continua de pé.
 
 O popup tem três preferências: **"Ocultar vídeos antigos"**, a idade máxima em **horas ou dias** e
 **"Ocultar jogos e anúncios"**. Os dois interruptores ficam ligados por padrão; a idade começa em
@@ -217,8 +218,9 @@ principal liga o modo; dentro dele, um **switch vertical de duas posições** es
 - **↓ Inscrições**: todos os canais do catálogo coletado em `youtube.com/feed/channels`.
 
 O modo vale para **todas as superfícies de recomendação** do YouTube: feed, inscrições, busca, página
-de canal, coluna lateral da página de vídeo, o "a seguir"/autoplay, a tela final do player e as
-prateleiras de Shorts. É uma restrição **por cima** dos outros filtros: a idade máxima e o bloqueio
+de canal, coluna lateral da página de vídeo, o "a seguir"/autoplay, a tela final do player, as
+prateleiras de Shorts e o feed vertical de tela cheia (`/shorts/<id>`), cujo item ativo também obedece
+à fonte. É uma restrição **por cima** dos outros filtros: a idade máxima e o bloqueio
 por palavras-chave/canais continuam valendo quando estão ligados. Jogos e anúncios não têm canal e
 somem; a allowlist de **Sempre recomendados** não se aplica nesse modo, porque a fonte escolhida é a
 última palavra. Histórico, curtidos, assistir depois, playlists e biblioteca continuam fora, como no
@@ -350,7 +352,8 @@ O **feed dos content scripts** tem suíte própria (`test/content-settings.test.
 storage, um listener e a ordem que faz uma mudança vencer uma leitura inicial atrasada. Ele entrega
 as preferências e o catálogo de inscrições juntos; o filtro e o chip assinam esse feed em vez de cada
 um montar o próprio `chrome.storage`. O **modo só inscrições** é coberto em `test/age-filter.test.mjs`:
-restrição por fonte no feed, na busca, na página de vídeo e nas prateleiras de Shorts; idade e
+restrição por fonte no feed, na busca, na página de vídeo, nas prateleiras de Shorts e no feed
+vertical de tela cheia; idade e
 palavra-chave por cima; allowlist ignorada; "Selecionados" vazio falhando fechado e "Inscrições"
 vazio falhando aberto.
 

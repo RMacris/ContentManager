@@ -18,6 +18,7 @@ import {
   promotedVideoCard,
   shortsLinkCard,
   shortsLockup,
+  shortsPlayer,
   watchOwner,
 } from './fixtures/youtube-dom.fixtures.mjs';
 
@@ -53,6 +54,7 @@ test('the card selector covers every recommendation surface, including video pag
     'ytd-rich-grid-slim-media',
     'ytm-shorts-lockup-view-model',
     'ytd-shorts-lockup-view-model',
+    'ytd-reel-video-renderer',
     'yt-lockup-view-model',
     '.ytp-ce-element',
     '.ytp-autonav-endscreen-upnext-container',
@@ -168,6 +170,19 @@ test('Shorts lockups and cards with a Shorts link are recognized', () => {
 
   assert.equal(dom.readCard(shortsLockup()).shorts, true);
   assert.equal(dom.readCard(shortsLinkCard()).shorts, true);
+});
+
+test('the full-screen Shorts player reads its title and the channel that owns the Short', () => {
+  const dom = createReader();
+  const player = shortsPlayer();
+  const read = dom.readCard(player);
+
+  assert.equal(read.promoted, false);
+  assert.equal(read.shorts, true, 'the player item is a Shorts surface');
+  assert.equal(read.title, 'Melhor Short', 'the title of the played Short is read');
+  assert.equal(read.channels.length, 1, 'the description panel link is not the owner of the Short');
+  assert.equal(read.channels[0].name, 'Rick Astley');
+  assert.equal(read.channels[0].handle, 'RickAstley');
 });
 
 test('the channel page reads its header target and its subscriptions card', () => {
