@@ -97,6 +97,8 @@
   let blockedChannels = [];
   let selectedChannels = [];
   let subscribedChannels = [];
+  let selectedIndex = buildChannelIndex([]);
+  let subscribedIndex = buildChannelIndex([]);
   let allowedChannels = [];
   let maxAgeHours = settingsContract.DEFAULT_SETTINGS.maxAgeHours;
   let started = false;
@@ -126,6 +128,8 @@
     blockedChannels = settings.blockedChannels;
     selectedChannels = settings.selectedChannels;
     subscribedChannels = settings.subscribedChannels ?? [];
+    selectedIndex = buildChannelIndex(selectedChannels);
+    subscribedIndex = buildChannelIndex(subscribedChannels);
     allowedChannels = settings.allowedChannels;
     cache = new WeakMap();
     keywordCache = new WeakMap();
@@ -280,8 +284,25 @@
     return old;
   }
 
-  /** O card tem algum canal na lista (selecionados ou inscrições)? */
-  function matchesChannelList(channels, source, card) {
+  /**
+   * Índice da fonte do modo por handle e por nome normalizados. Comparar cada
+   * card com duas mil inscrições em toda varredura seria caro; com o índice a
+   * decisão fica O(1) por canal do card.
+   */
+  function buildChannelIndex(list) {
+    const handles = new Set();
+    const names = new Set();
+    for (let i = 0; i < list.length; i += 1) {
+      const handle = channelRules.normalizeHandle(list[i].handle);
+      if (handle !== '') handles.add(handle);
+      const name = channelRules.normalizeChannelName(list[i].name);
+      if (name !== '') names.add(name);
+    }
+    return { handles, names };
+  }
+
+  /** O card tem algum canal na fonte do modo? */
+  function matchesChannelList(channels, index, card) {
     let signature = '';
     for (let i = 0; i < channels.length; i += 1) {
       signature += channels[i].name + '\u0001' + channels[i].handle + '\u0002';
@@ -291,7 +312,11 @@
 
     let matches = false;
     for (let i = 0; i < channels.length && !matches; i += 1) {
-      matches = channelRules.isAllowedChannel(channels[i].name, channels[i].handle, source);
+      const handle = channelRules.normalizeHandle(channels[i].handle);
+      const name = channelRules.normalizeChannelName(channels[i].name);
+      matches =
+        (handle !== '' && index.handles.has(handle)) ||
+        (name !== '' && index.names.has(name));
     }
     channelCache.set(card, { signature, matches });
     return matches;
@@ -315,8 +340,9 @@
     }
 
     const source = channelMode === 'selected' ? selectedChannels : subscribedChannels;
+    const index = channelMode === 'selected' ? selectedIndex : subscribedIndex;
     const channels = read.channels;
-    if (source.length > 0 && (channels.length === 0 || !matchesChannelList(channels, source, card))) {
+    if (source.length > 0 && (channels.length === 0 || !matchesChannelList(channels, index, card))) {
       hide(card);
       return;
     }

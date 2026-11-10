@@ -83,12 +83,26 @@
     return true;
   }
 
-  /** As entradas do catálogo sem a foto: o filtro só usa nome e handle. */
+  /**
+   * As entradas do catálogo sem a foto: o filtro só usa nome e handle. O
+   * catálogo já é limpo e sem repetidos quando é gravado pelo service worker;
+   * aqui basta projetar os dois campos, sem repetir a deduplicação O(n²) a
+   * cada carregamento de página.
+   */
   function normalizeCatalog(catalog) {
     if (catalog === null || typeof catalog !== 'object' || !Array.isArray(catalog.channels)) {
       return [];
     }
-    return contract.normalizeAllowedList(catalog.channels) ?? [];
+    const list = [];
+    for (let i = 0; i < catalog.channels.length; i += 1) {
+      const entry = catalog.channels[i];
+      if (entry === null || typeof entry !== 'object') continue;
+      const name = typeof entry.name === 'string' ? entry.name.trim() : '';
+      const handle = typeof entry.handle === 'string' ? entry.handle.trim() : '';
+      if (name === '' && handle === '') continue;
+      list.push({ name, handle });
+    }
+    return list;
   }
 
   /**
