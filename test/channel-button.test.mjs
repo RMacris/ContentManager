@@ -178,6 +178,71 @@ test('re-injection over a live chip keeps one loop and one storage listener', ()
   assert.equal(findHost(run.container), before, 'the same chip stays in place');
 });
 
+test('a route change releases the chips whose cards left the document', () => {
+  const run = runButton();
+  const first = findHost(run.container);
+  assert.ok(first);
+  assert.equal(run.sandbox.YTIChannelButton.hostCount(), 1, 'the initial scan holds one chip');
+
+  run.container.remove();
+  run.intervals[0]();
+
+  assert.equal(first.isConnected, false, 'the old card is gone');
+  assert.equal(run.sandbox.YTIChannelButton.hostCount(), 0, 'the scan releases the detached chip');
+
+  const next = appendChannelContainer(run.document);
+  run.intervals[0]();
+
+  const nextHost = findHost(next);
+  assert.ok(nextHost, 'the new page gets its own chip');
+  assert.notEqual(nextHost, first);
+  assert.equal(run.sandbox.YTIChannelButton.hostCount(), 1, 'the live set follows the page');
+});
+
+test('repeated scans keep the live host set bounded across the SPA', () => {
+  const run = runButton();
+  let current = run.container;
+
+  for (let i = 0; i < 8; i += 1) {
+    current.remove();
+    current = appendChannelContainer(run.document);
+    run.intervals[0]();
+    assert.equal(run.sandbox.YTIChannelButton.hostCount(), 1, `scan ${i + 1} keeps one chip for one card`);
+  }
+
+  const chips = findAll(run.document.documentElement, (node) => node.className === HOST_CLASS);
+  assert.equal(chips.length, 1, 'only the current card carries a chip');
+});
+
+test('a recycled card reuses its chip instead of holding a second one', () => {
+  const run = runButton();
+  const host = findHost(run.container);
+  assert.ok(host);
+
+  run.container.remove();
+  run.intervals[0]();
+  assert.equal(run.sandbox.YTIChannelButton.hostCount(), 0);
+
+  run.document.documentElement.appendChild(run.container);
+  run.intervals[0]();
+
+  assert.equal(findHost(run.container), host, 'the chip inside the recycled card is reused');
+  assert.equal(run.sandbox.YTIChannelButton.hostCount(), 1, 'the recycled chip returns to the live set');
+});
+
+test('stopping the runtime clears the chip host set and the DOM artifacts', () => {
+  const run = runButton();
+  const host = findHost(run.container);
+  assert.ok(host);
+  assert.equal(run.sandbox.YTIChannelButton.hostCount(), 1);
+
+  run.sandbox.YTIContentRuntime.stop();
+
+  assert.equal(host.isConnected, false, 'the chip leaves the page');
+  assert.equal(run.sandbox.YTIChannelButton.hostCount(), 0, 'the stopped instance holds no host');
+  assert.equal(run.document.getElementById('yti-channel-block-style'), null, 'the injected style is removed');
+});
+
 test('the pure channel-list helpers add, match and remove entries', () => {
   const run = runButton({ blockedChannels: ['Rick'] });
   const api = run.sandbox.YTIChannelButton;
@@ -250,6 +315,12 @@ function runButton({
 
 function findHost(container) {
   return container.children.find((child) => child.className === HOST_CLASS) ?? null;
+}
+
+function appendChannelContainer(document, name = 'Rick Astley', surface = 'watch') {
+  const container = createChannelContainer(name, surface);
+  document.documentElement.appendChild(container);
+  return container;
 }
 
 function flushTimers(timers) {
@@ -574,9 +645,15 @@ class FakeDocument {
   }
 
   querySelectorAll(selector) {
-    if (selector === 'ytd-channel-name') return [this.container];
-    if (selector === 'yt-lockup-view-model') return this.lockup === null ? [] : [this.lockup];
-    if (selector === 'yt-page-header-renderer h1') return this.pageTitle === null ? [] : [this.pageTitle];
+    if (selector === 'ytd-channel-name') {
+      return findAll(this.documentElement, (node) => node.tagName === 'YTD-CHANNEL-NAME');
+    }
+    if (selector === 'yt-lockup-view-model') {
+      return findAll(this.documentElement, (node) => node.tagName === 'YT-LOCKUP-VIEW-MODEL');
+    }
+    if (selector === 'yt-page-header-renderer h1') {
+      return findAll(this.documentElement, (node) => node.tagName === 'H1');
+    }
     if (selector === '.yti-channel-block-host') {
       return findAll(this.documentElement, (node) => node.className === HOST_CLASS);
     }
@@ -587,6 +664,11 @@ class FakeDocument {
     const listeners = this.listeners.get(type) ?? [];
     listeners.push(listener);
     this.listeners.set(type, listeners);
+  }
+
+  removeEventListener(type, listener) {
+    const listeners = this.listeners.get(type) ?? [];
+    this.listeners.set(type, listeners.filter((entry) => entry !== listener));
   }
 }
 

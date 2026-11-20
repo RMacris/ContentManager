@@ -64,16 +64,76 @@ test('re-injection keeps a live runtime and replaces an orphaned one', () => {
   assert.notEqual(run.sandbox.YTIContentRuntime, first, 'an orphaned runtime is replaced');
 });
 
-function createRuntime({ runtimeId = 'extension-id' } = {}) {
+test('stop removes the document listeners it attached', () => {
+  const run = createRuntime();
+  run.core.register({ scan() {} });
+
+  assert.ok(run.listeners.has('yt-navigate-finish'), 'the SPA navigation listener is attached');
+  assert.ok(run.listeners.has('visibilitychange'), 'the visibility listener is attached');
+
+  run.core.stop();
+
+  assert.equal(run.listeners.has('yt-navigate-finish'), false, 'the navigation listener is removed');
+  assert.equal(run.listeners.has('visibilitychange'), false, 'the visibility listener is removed');
+  assert.equal(run.observers[0].disconnected, true, 'the observer is disconnected once');
+});
+
+test('a stopped runtime releases every adapter while a live one still scans', () => {
+  const run = createRuntime();
+  const scans = [];
+  run.core.register({ scan: () => scans.push('chip') });
+
+  assert.equal(run.core.adapterCount(), 1, 'the live runtime keeps its adapter');
+  flushTimers(run.timers);
+  assert.deepEqual(scans, ['chip'], 'a live runtime still scans');
+
+  run.core.stop();
+
+  assert.equal(run.core.adapterCount(), 0, 'a stopped runtime lets go of its adapters');
+  assert.equal(run.core.isRunning(), false, 'the shared loop is stopped');
+
+  run.core.scheduleScan();
+  flushTimers(run.timers);
+  assert.deepEqual(scans, ['chip'], 'a stopped runtime never scans again');
+});
+
+test('stop still runs every adapter cleanup when the document cannot remove listeners', () => {
+  const run = createRuntime();
+  const stopped = [];
+  run.core.register({ scan() {}, onStop: () => stopped.push('chip') });
+  delete run.document.removeEventListener;
+
+  run.core.stop();
+
+  assert.deepEqual(stopped, ['chip'], 'the adapter cleanup is not skipped');
+  assert.equal(run.core.adapterCount(), 0, 'the adapters are still released');
+});
+
+test('stop before the document is ready drops the DOMContentLoaded listener too', () => {
+  const run = createRuntime({ documentElement: null });
+  run.core.register({ scan() {} });
+
+  assert.ok(run.listeners.has('DOMContentLoaded'), 'the deferred start waits for the document');
+
+  run.core.stop();
+
+  assert.equal(run.listeners.has('DOMContentLoaded'), false, 'the deferred listener is removed');
+  assert.equal(run.core.isRunning(), false, 'the shared loop is stopped');
+});
+
+function createRuntime({ runtimeId = 'extension-id', documentElement = {} } = {}) {
   const timers = [];
   const intervals = [];
   const observers = [];
   const listeners = new Map();
   const document = {
-    documentElement: {},
+    documentElement,
     visibilityState: 'visible',
     addEventListener(type, listener) {
       listeners.set(type, listener);
+    },
+    removeEventListener(type, listener) {
+      if (listeners.get(type) === listener) listeners.delete(type);
     },
   };
   const chrome = { runtime: { id: runtimeId } };

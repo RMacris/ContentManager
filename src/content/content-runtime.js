@@ -54,6 +54,9 @@
   let domWatched = false;
   let domObserver = null;
   let sweepTimer = null;
+  let domReadyListener = null;
+  let navigationListener = null;
+  let visibilityListener = null;
 
   /** A aba está em segundo plano? Nenhuma varredura toca no DOM nesse estado. */
   function isDocumentHidden() {
@@ -69,6 +72,13 @@
     if (isExtensionAlive()) return false;
     stop();
     return true;
+  }
+
+  /** Solta um listener que esta instância registrou, sem exigir a API do documento. */
+  function removeDocumentListener(type, listener) {
+    if (listener === null) return null;
+    if (typeof document.removeEventListener === 'function') document.removeEventListener(type, listener);
+    return null;
   }
 
   function stop() {
@@ -90,6 +100,12 @@
       domObserver.disconnect();
       domObserver = null;
     }
+    // Os listeners do documento fecham sobre `scheduleScan` -> `adapters` ->
+    // adaptador e caches; sem removê-los, a geração antiga fica presa até a
+    // aba fechar, mesmo depois de o runtime parar.
+    domReadyListener = removeDocumentListener('DOMContentLoaded', domReadyListener);
+    navigationListener = removeDocumentListener('yt-navigate-finish', navigationListener);
+    visibilityListener = removeDocumentListener('visibilitychange', visibilityListener);
 
     // Cada adaptador limpa o que criou (o chip remove os próprios botões);
     // um deles falhar não impede o outro de parar.
@@ -101,6 +117,9 @@
         // O contexto já morreu; não há o que restaurar.
       }
     }
+    // O runtime parado não agenda mais nada; soltar os adaptadores libera o
+    // scan e o que ele fecha em volta (e os cards que eles conheciam).
+    adapters.length = 0;
   }
 
   function shouldScanAdapter(adapter) {
@@ -160,16 +179,19 @@
     if (domWatched || stopped) return;
     const rootNode = document.documentElement;
     if (rootNode === null || rootNode === undefined) {
-      document.addEventListener('DOMContentLoaded', watchDom, { once: true });
+      domReadyListener = watchDom;
+      document.addEventListener('DOMContentLoaded', domReadyListener, { once: true });
       return;
     }
     domWatched = true;
     domObserver = new MutationObserver(scheduleScan);
     domObserver.observe(rootNode, { childList: true, subtree: true });
-    document.addEventListener('yt-navigate-finish', scheduleScan);
-    document.addEventListener('visibilitychange', () => {
+    navigationListener = scheduleScan;
+    visibilityListener = () => {
       if (!isDocumentHidden()) scheduleScan();
-    });
+    };
+    document.addEventListener('yt-navigate-finish', navigationListener);
+    document.addEventListener('visibilitychange', visibilityListener);
   }
 
   function start() {
@@ -219,6 +241,9 @@
     stop,
     isRunning() {
       return started && !stopped;
+    },
+    adapterCount() {
+      return adapters.length;
     },
   };
 })(typeof globalThis !== 'undefined' ? globalThis : this);

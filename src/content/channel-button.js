@@ -165,6 +165,9 @@
     normalizeName: channelRules.normalizeChannelName,
     isBlocked: (name) => channelRules.isBlockedChannel(name, blockedChannels),
     nextBlockedChannels: (name) => channelRules.nextBlockedChannels(name, blockedChannels),
+    // Quantos chips esta instância ainda segura; a varredura solta os que
+    // saíram da árvore para o card removido poder ser coletado.
+    hostCount: () => liveHosts.size,
   };
 
   /* --------------------------------------------------------- estado e desenho */
@@ -178,6 +181,17 @@
     allowedChannels = values;
     refreshHosts();
     scheduleScan();
+  }
+
+  /**
+   * Solta os chips que o YouTube arrancou da árvore. Sem isso, o Set forte
+   * segurava o card removido inteiro (o chip continua dentro dele) até a
+   * próxima mudança de lista, que pode nunca vir.
+   */
+  function pruneHosts() {
+    for (const host of liveHosts) {
+      if (!host.isConnected) liveHosts.delete(host);
+    }
   }
 
   function refreshHosts() {
@@ -266,11 +280,17 @@
     }
 
     let host = hostMap.get(key);
-    if (host !== undefined && !host.isConnected) host = undefined;
+    if (host !== undefined && !host.isConnected) {
+      liveHosts.delete(host);
+      host = undefined;
+    }
     if (host === undefined) {
       host = createHost(name, handle, surface);
       hostMap.set(key, host);
     } else {
+      // Um card reciclado pode voltar à árvore depois de a varredura já ter
+      // soltado o chip; ele volta a ser acompanhado sem criar um segundo.
+      liveHosts.add(host);
       updateHost(host, name, handle, surface);
     }
     append(host);
@@ -329,6 +349,7 @@
   }
 
   function scan() {
+    pruneHosts();
     injectStyle();
     scanClassicContainers();
     scanLockups();
@@ -353,6 +374,9 @@
     }
     const style = document.getElementById(STYLE_ID);
     if (style !== null && style.getAttribute(INSTANCE_ATTRIBUTE) === INSTANCE_ID) style.remove();
+    // Chips já desconectados não aparecem na consulta acima; a lista viva é a
+    // referência forte que ainda seguraria o card removido.
+    liveHosts.clear();
   }
 
   function removeOldArtifacts() {
